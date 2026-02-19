@@ -13,7 +13,6 @@ use App\Models\Configuracion;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
 
 class LicenciasController extends Controller
@@ -867,13 +866,29 @@ class LicenciasController extends Controller
         // Obtener la leyenda correspondiente al año de la LAR
         $leyenda = \App\Models\LeyendaAnual::getPorAnio($licencia->AnioLar);
         
-        // Generar PDF con DomPDF
-        $pdf = Pdf::loadView('prints.lar', compact('licencia', 'leyenda'));
-        $pdf->setPaper('A4', 'portrait');
+        // Verificar si DomPDF está disponible
+        if (!class_exists('Barryvdh\DomPDF\Facade\Pdf') && !class_exists('Barryvdh\DomPDF\PDF')) {
+            return response()->json([
+                'success' => false,
+                'message' => 'El generador de PDF no está disponible. Contacte al administrador para instalar la librería DomPDF.'
+            ], 500);
+        }
         
-        $nombreArchivo = 'Disposicion_LAR_' . $licencia->personal->Apellido . '_' . $licencia->AnioLar . '.pdf';
-        
-        return $pdf->stream($nombreArchivo);
+        try {
+            // Generar PDF con DomPDF
+            $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('prints.lar', compact('licencia', 'leyenda'));
+            $pdf->setPaper('A4', 'portrait');
+            
+            $nombreArchivo = 'Disposicion_LAR_' . $licencia->personal->Apellido . '_' . $licencia->AnioLar . '.pdf';
+            
+            return $pdf->stream($nombreArchivo);
+        } catch (\Exception $e) {
+            Log::error('Error generando PDF LAR: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al generar el PDF: ' . $e->getMessage()
+            ], 500);
+        }
     }
 
     public function imprimirCD($id)

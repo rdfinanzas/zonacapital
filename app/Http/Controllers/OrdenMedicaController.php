@@ -9,7 +9,6 @@ use App\Models\Disposicion;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
 
 class OrdenMedicaController extends Controller
@@ -532,6 +531,14 @@ class OrdenMedicaController extends Controller
     public function imprimir(Licencia $licencia)
     {
         try {
+            // Verificar si DomPDF está disponible
+            if (!class_exists('Barryvdh\DomPDF\Facade\Pdf') && !class_exists('Barryvdh\DomPDF\PDF')) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'El generador de PDF no está disponible. Contacte al administrador para instalar la librería DomPDF.'
+                ], 500);
+            }
+            
             // Cargar las relaciones necesarias
             $licencia->load(['personal', 'motivo', 'disposicion']);
 
@@ -539,7 +546,7 @@ class OrdenMedicaController extends Controller
             $leyenda = \App\Models\LeyendaAnual::getPorAnio(date('Y'));
 
             // Generar PDF con DomPDF
-            $pdf = Pdf::loadView('prints.orden-medica', compact('licencia', 'leyenda'));
+            $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('prints.orden-medica', compact('licencia', 'leyenda'));
             $pdf->setPaper('legal', 'portrait');
 
             $nombreArchivo = 'Orden_Medica_' . $licencia->personal->Legajo . '_' . date('Y') . '.pdf';
@@ -551,7 +558,7 @@ class OrdenMedicaController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => 'Error al imprimir la orden médica'
+                'message' => 'Error al imprimir la orden médica: ' . $e->getMessage()
             ], 500);
         }
     }
