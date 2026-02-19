@@ -13,6 +13,7 @@ use App\Models\Configuracion;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
 
 class LicenciasController extends Controller
@@ -867,7 +868,7 @@ class LicenciasController extends Controller
         $leyenda = \App\Models\LeyendaAnual::getPorAnio($licencia->AnioLar);
         
         // Generar PDF con DomPDF
-        $pdf = \PDF::loadView('prints.lar', compact('licencia', 'leyenda'));
+        $pdf = Pdf::loadView('prints.lar', compact('licencia', 'leyenda'));
         $pdf->setPaper('A4', 'portrait');
         
         $nombreArchivo = 'Disposicion_LAR_' . $licencia->personal->Apellido . '_' . $licencia->AnioLar . '.pdf';
