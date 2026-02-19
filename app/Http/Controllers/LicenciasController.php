@@ -866,22 +866,44 @@ class LicenciasController extends Controller
         // Obtener la leyenda correspondiente al año de la LAR
         $leyenda = \App\Models\LeyendaAnual::getPorAnio($licencia->AnioLar);
         
-        // Verificar si DomPDF está disponible
-        if (!class_exists('Barryvdh\DomPDF\Facade\Pdf') && !class_exists('Barryvdh\DomPDF\PDF')) {
-            return response()->json([
-                'success' => false,
-                'message' => 'El generador de PDF no está disponible. Contacte al administrador para instalar la librería DomPDF.'
-            ], 500);
-        }
-        
         try {
-            // Generar PDF con DomPDF
-            $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('prints.lar', compact('licencia', 'leyenda'));
-            $pdf->setPaper('A4', 'portrait');
+            $dompdfPath = base_path('vendor/dompdf/dompdf/src/Dompdf.php');
+            
+            if (!file_exists($dompdfPath)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'DomPDF no está instalado en el servidor.'
+                ], 500);
+            }
+            
+            // Cargar DomPDF usando su autoloader si existe
+            $autoloaderPath = base_path('vendor/dompdf/dompdf/src/Autoloader.php');
+            if (file_exists($autoloaderPath)) {
+                require_once $autoloaderPath;
+                if (method_exists('Dompdf\Autoloader', 'register')) {
+                    \Dompdf\Autoloader::register();
+                }
+            }
+            
+            // Si aún no está disponible, cargar manualmente
+            if (!class_exists('Dompdf\Dompdf')) {
+                require_once $dompdfPath;
+            }
+            
+            // Usar DomPDF directamente
+            $dompdf = new \Dompdf\Dompdf();
+            $html = view('prints.lar', compact('licencia', 'leyenda'))->render();
+            $dompdf->loadHtml($html);
+            $dompdf->setPaper('A4', 'portrait');
+            $dompdf->render();
             
             $nombreArchivo = 'Disposicion_LAR_' . $licencia->personal->Apellido . '_' . $licencia->AnioLar . '.pdf';
             
-            return $pdf->stream($nombreArchivo);
+            return response($dompdf->output(), 200, [
+                'Content-Type' => 'application/pdf',
+                'Content-Disposition' => 'inline; filename="' . $nombreArchivo . '"'
+            ]);
+            
         } catch (\Exception $e) {
             Log::error('Error generando PDF LAR: ' . $e->getMessage());
             return response()->json([
