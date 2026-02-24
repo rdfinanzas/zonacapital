@@ -52,6 +52,7 @@ use App\Http\Controllers\RolesController;
 use App\Http\Controllers\ConfiguracionController;
 use App\Http\Controllers\HijoController;
 use App\Http\Controllers\MotivoLicenciaController;
+use App\Http\Controllers\NotaJuridicaController;
 use Illuminate\Support\Facades\DB;
 
 // Ruta raíz que redirige al login (fuera de middleware)
@@ -472,6 +473,21 @@ Route::middleware(['check.session'])->group(function () {
         Route::delete('/{licencia}', [OrdenMedicaController::class, 'destroy'])->name('orden-medicas.destroy');
     });
 
+    // Rutas para Notas Jurídicas (agrupadas)
+    Route::prefix('notas-juridicas')->middleware('puede.ver')->group(function () {
+        Route::get('/', [NotaJuridicaController::class, 'index'])->name('notas-juridicas');
+        Route::get('/filtrar', [NotaJuridicaController::class, 'filtrar'])->name('notas-juridicas.filtrar');
+        Route::get('/proximo-numero', [NotaJuridicaController::class, 'proximoNumero'])->name('notas-juridicas.proximo-numero');
+        Route::get('/buscar-notas', [NotaJuridicaController::class, 'buscarNotas'])->name('notas-juridicas.buscar');
+        Route::get('/plantillas', [NotaJuridicaController::class, 'plantillas'])->name('notas-juridicas.plantillas');
+        Route::get('/plantillas/{id}', [NotaJuridicaController::class, 'cargarPlantilla'])->name('notas-juridicas.cargar-plantilla');
+        Route::get('/{id}', [NotaJuridicaController::class, 'show'])->name('notas-juridicas.show');
+        Route::get('/{id}/pdf', [NotaJuridicaController::class, 'exportarPdf'])->name('notas-juridicas.pdf');
+        Route::post('/', [NotaJuridicaController::class, 'store'])->name('notas-juridicas.store');
+        Route::put('/{id}', [NotaJuridicaController::class, 'update'])->name('notas-juridicas.update');
+        Route::delete('/{id}', [NotaJuridicaController::class, 'destroy'])->name('notas-juridicas.destroy');
+    });
+
     // Rutas para Log (agrupadas)
     Route::prefix('log')->middleware('puede.ver')->group(function () {
         Route::get('/', [LogController::class, 'index'])->name('log');
@@ -884,3 +900,16 @@ Route::prefix('api/programacion-personal')->middleware(['check.session'])->group
 
 // Descarga de TXT importado
 Route::get('/import-horarios/{id}/txt', [ImportHorariosController::class, 'descargar'])->middleware(['check.session']);
+
+// Rutas para Gestor de Plantillas de Documentos (sistema multi-módulo)
+Route::prefix('plantillas-documentos')->middleware(['check.session', 'puede.ver'])->group(function () {
+    Route::get('/', [App\Http\Controllers\PlantillaDocumentoController::class, 'index'])->name('plantillas-documentos');
+    Route::get('/filtrar', [App\Http\Controllers\PlantillaDocumentoController::class, 'filtrar'])->name('plantillas-documentos.filtrar');
+    Route::get('/por-modulo', [App\Http\Controllers\PlantillaDocumentoController::class, 'porModulo'])->name('plantillas-documentos.por-modulo');
+    Route::get('/defaults', [App\Http\Controllers\PlantillaDocumentoController::class, 'defaults'])->name('plantillas-documentos.defaults');
+    Route::get('/{id}', [App\Http\Controllers\PlantillaDocumentoController::class, 'show'])->name('plantillas-documentos.show');
+    Route::post('/', [App\Http\Controllers\PlantillaDocumentoController::class, 'store'])->name('plantillas-documentos.store');
+    Route::put('/{id}', [App\Http\Controllers\PlantillaDocumentoController::class, 'update'])->name('plantillas-documentos.update');
+    Route::delete('/{id}', [App\Http\Controllers\PlantillaDocumentoController::class, 'destroy'])->name('plantillas-documentos.destroy');
+    Route::post('/{id}/duplicar', [App\Http\Controllers\PlantillaDocumentoController::class, 'duplicar'])->name('plantillas-documentos.duplicar');
+});
