@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Funcionalidad Dengue</title>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .test-box { margin: 15px 0; padding: 15px; border: 1px solid #ccc; border-radius: 5px; }
+        .success { background-color: #d4edda; border-color: #c3e6cb; }
+        .error { background-color: #f8d7da; border-color: #f5c6cb; }
+        .pending { background-color: #fff3cd; }
+        button { padding: 8px 16px; margin: 5px; }
+        pre { background: #f8f9fa; padding: 10px; border-radius: 3px; overflow-x: auto; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <h1>Test Funcionalidad Registros Dengue</h1>
+
+    <div class="test-box">
+        <h3>Paso 1: Establecer sesión</h3>
+        <button onclick="establecerSesion()">Establecer Sesión de Usuario</button>
+        <div id="result-sesion"></div>
+    </div>
+
+    <div class="test-box">
+        <h3>Paso 2: Probar formulario</h3>
+        <button onclick="probarFormulario()" disabled id="btn-form">Probar Carga de Formulario</button>
+        <div id="result-form"></div>
+    </div>
+
+    <div class="test-box">
+        <h3>Paso 3: Probar edición</h3>
+        <button onclick="probarEdicion()" disabled id="btn-edit">Probar Edición de Registro</button>
+        <div id="result-edit"></div>
+    </div>
+
+    <script>
+        let csrfToken = null;
+
+        function establecerSesion() {
+            const resultDiv = $('#result-sesion');
+            resultDiv.html('<div class="pending">Estableciendo sesión...</div>');
+
+            // Usar fetch para evitar problemas de redirección
+            fetch('/simular-login/1', {
+                method: 'GET',
+                credentials: 'same-origin'
+            })
+            .then(response => {
+                if (response.redirected) {
+                    resultDiv.html('<div class="success">✅ Sesión establecida correctamente</div>');
+                    $('#btn-form').prop('disabled', false);
+                    return true;
+                } else {
+                    throw new Error('No se pudo establecer la sesión');
+                }
+            })
+            .catch(error => {
+                resultDiv.html('<div class="error">❌ Error: ' + error.message + '</div>');
+            });
+        }
+
+        function probarFormulario() {
+            const resultDiv = $('#result-form');
+            resultDiv.html('<div class="pending">Cargando formulario...</div>');
+
+            fetch('/registros-dengue', {
+                method: 'GET',
+                credentials: 'same-origin'
+            })
+            .then(response => response.text())
+            .then(html => {
+                // Extraer token CSRF del HTML
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(html, 'text/html');
+                csrfToken = doc.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+
+                if (csrfToken && html.includes('form_main')) {
+                    resultDiv.html('<div class="success">✅ Formulario cargado correctamente<br>Token CSRF: ' + csrfToken + '</div>');
+                    $('#btn-edit').prop('disabled', false);
+                } else {
+                    resultDiv.html('<div class="error">❌ No se pudo cargar el formulario correctamente</div>');
+                }
+            })
+            .catch(error => {
+                resultDiv.html('<div class="error">❌ Error al cargar formulario: ' + error.message + '</div>');
+            });
+        }
+
+        function probarEdicion() {
+            const resultDiv = $('#result-edit');
+            resultDiv.html('<div class="pending">Probando edición...</div>');
+
+            if (!csrfToken) {
+                resultDiv.html('<div class="error">❌ No hay token CSRF disponible</div>');
+                return;
+            }
+
+            // Primero obtener un registro para editar
+            fetch('/registros-dengue/1', {
+                method: 'GET',
+                credentials: 'same-origin',
+                headers: {
+                    'X-CSRF-TOKEN': csrfToken,
+                    'Accept': 'application/json'
+                }
+            })
+            .then(response => {
+                console.log('GET Response status:', response.status);
+                console.log('GET Response headers:', response.headers.get('content-type'));
+                return response.text();
+            })
+            .then(data => {
+                console.log('GET Response data:', data);
+
+                let registro;
+                try {
+                    registro = JSON.parse(data);
+                } catch(e) {
+                    throw new Error('La respuesta GET no es JSON válido: ' + data.substring(0, 200));
+                }
+
+                if (registro.success) {
+                    // Ahora probar la actualización
+                    const formData = new FormData();
+                    formData.append('nombre', 'Test Edición ' + new Date().getTime());
+                    formData.append('dni', registro.data.paciente?.DNI || '12345678');
+                    formData.append('_method', 'PUT');
+
+                    return fetch('/registros-dengue/1', {
+                        method: 'POST',
+                        body: formData,
+                        credentials: 'same-origin',
+                        headers: {
+                            'X-CSRF-TOKEN': csrfToken,
+                            'Accept': 'application/json'
+                        }
+                    });
+                } else {
+                    throw new Error('No se pudo obtener el registro: ' + JSON.stringify(registro));
+                }
+            })
+            .then(response => {
+                console.log('PUT Response status:', response.status);
+                console.log('PUT Response headers:', response.headers.get('content-type'));
+                return response.text();
+            })
+            .then(data => {
+                console.log('PUT Response data:', data);
+
+                try {
+                    const updateResult = JSON.parse(data);
+                    if (updateResult.success) {
+                        resultDiv.html('<div class="success">✅ Edición exitosa: ' + updateResult.message + '</div>');
+                    } else {
+                        resultDiv.html('<div class="error">❌ Error en edición: ' + updateResult.message + '</div>');
+                    }
+                } catch(e) {
+                    resultDiv.html(`
+                        <div class="error">
+                            <strong>❌ Error: Respuesta no es JSON válido</strong>
+                            <pre>${data}</pre>
+                        </div>
+                    `);
+                }
+            })
+            .catch(error => {
+                console.error('Error completo:', error);
+                resultDiv.html('<div class="error">❌ Error: ' + error.message + '</div>');
+            });
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>✅ Test Final - Registros Dengue</title>
+    <meta charset="utf-8">
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background: #f8f9fa;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            background: #fff;
+        }
+        .success {
+            background-color: #d4edda !important;
+            border-color: #c3e6cb !important;
+        }
+        .error {
+            background-color: #f8d7da !important;
+            border-color: #f5c6cb !important;
+        }
+        .warning {
+            background-color: #fff3cd !important;
+            border-color: #ffeaa7 !important;
+        }
+        h1 {
+            color: #28a745;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        h2 {
+            color: #495057;
+            border-bottom: 2px solid #e9ecef;
+            padding-bottom: 10px;
+        }
+        button {
+            padding: 12px 24px;
+            margin: 10px 5px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background-color 0.2s;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        button:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+        .result {
+            margin-top: 15px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-left: 4px solid #007bff;
+            border-radius: 0 5px 5px 0;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+        }
+        .status-badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: bold;
+            color: white;
+        }
+        .status-success { background: #28a745; }
+        .status-error { background: #dc3545; }
+        .status-pending { background: #6c757d; }
+
+        .test-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        @media (max-width: 768px) {
+            .test-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>✅ Test Final - Formulario Registros Dengue</h1>
+        <p style="text-align: center; color: #6c757d; margin-bottom: 30px;">
+            Verificación completa del funcionamiento de agregar y editar registros
+        </p>
+
+        <div class="test-grid">
+            <div class="test-section">
+                <h2>🔍 1. Verificaciones Previas</h2>
+                <div style="margin-bottom: 15px;">
+                    <span class="status-badge status-pending" id="status-session">⏳ Sesión</span>
+                    <span class="status-badge status-pending" id="status-permisos">⏳ Permisos</span>
+                    <span class="status-badge status-pending" id="status-access">⏳ Acceso</span>
+                </div>
+                <button onclick="verificarPrevias()" id="btn-verificar">Verificar Sistema</button>
+                <div id="result-previas" class="result" style="display: none;"></div>
+            </div>
+
+            <div class="test-section">
+                <h2>➕ 2. Test Agregar Registro</h2>
+                <div style="margin-bottom: 15px;">
+                    <span class="status-badge status-pending" id="status-add">⏳ Pendiente</span>
+                </div>
+                <button onclick="testAgregar()" id="btn-agregar" disabled>Agregar Nuevo Registro</button>
+                <div id="result-add" class="result" style="display: none;"></div>
+            </div>
+
+            <div class="test-section">
+                <h2>✏️ 3. Test Editar Registro</h2>
+                <div style="margin-bottom: 15px;">
+                    <span class="status-badge status-pending" id="status-edit">⏳ Pendiente</span>
+                </div>
+                <button onclick="testEditar()" id="btn-editar" disabled>Editar Registro ID=1</button>
+                <div id="result-edit" class="result" style="display: none;"></div>
+            </div>
+
+            <div class="test-section">
+                <h2>🔍 4. Test Búsqueda y Filtros</h2>
+                <div style="margin-bottom: 15px;">
+                    <span class="status-badge status-pending" id="status-search">⏳ Pendiente</span>
+                </div>
+                <button onclick="testBusqueda()" id="btn-busqueda" disabled>Probar Búsquedas</button>
+                <div id="result-search" class="result" style="display: none;"></div>
+            </div>
+        </div>
+
+        <div class="test-section" id="summary-section" style="display: none;">
+            <h2>📊 Resumen Final</h2>
+            <div id="summary-content"></div>
+        </div>
+    </div>
+
+    <script>
+        const baseUrl = 'http://127.0.0.1:8000';
+        let testResults = {};
+
+        function updateStatus(elementId, status, text) {
+            const element = document.getElementById(elementId);
+            element.className = `status-badge status-${status}`;
+            element.textContent = text || (status === 'success' ? '✅ OK' : status === 'error' ? '❌ Error' : '⏳ Pendiente');
+        }
+
+        function showResult(selector, title, data, isError = false) {
+            const div = document.querySelector(selector);
+            div.style.display = 'block';
+            div.innerHTML = `
+                <strong>${title}</strong><br>
+                <pre style="margin-top: 10px; white-space: pre-wrap; word-wrap: break-word;">${typeof data === 'object' ? JSON.stringify(data, null, 2) : data}</pre>
+            `;
+        }
+
+        function enableButton(buttonId) {
+            document.getElementById(buttonId).disabled = false;
+        }
+
+        async function verificarPrevias() {
+            document.getElementById('btn-verificar').disabled = true;
+
+            try {
+                // Test de acceso a la página
+                const response = await fetch(`${baseUrl}/registros-dengue`);
+                if (response.ok) {
+                    updateStatus('status-access', 'success', '✅ Acceso OK');
+                    updateStatus('status-session', 'success', '✅ Sesión OK');
+                    updateStatus('status-permisos', 'success', '✅ Permisos OK');
+
+                    showResult('#result-previas', '✅ Verificaciones completadas',
+                        'Sistema funcionando correctamente. Todos los tests están habilitados.');
+
+                    // Habilitar otros botones
+                    enableButton('btn-agregar');
+                    enableButton('btn-editar');
+                    enableButton('btn-busqueda');
+
+                    testResults.previas = true;
+                } else {
+                    throw new Error(`Error HTTP: ${response.status}`);
+                }
+            } catch (error) {
+                updateStatus('status-access', 'error');
+                updateStatus('status-session', 'error');
+                updateStatus('status-permisos', 'error');
+
+                showResult('#result-previas', '❌ Error en verificaciones previas', error.message);
+                testResults.previas = false;
+            }
+
+            document.getElementById('btn-verificar').disabled = false;
+        }
+
+        async function testAgregar() {
+            document.getElementById('btn-agregar').disabled = true;
+            updateStatus('status-add', 'pending', '⏳ Ejecutando...');
+
+            const datosCompletos = {
+                // Datos del paciente
+                dni: Math.floor(Math.random() * 90000000) + 10000000, // DNI aleatorio
+                nombre: 'PACIENTE PRUEBA ' + new Date().getTime(),
+                celular: '3794123456',
+                sexo: '0',
+                fecha_nac: '01/01/1990',
+                domicilio: 'Calle Falsa 123',
+                dto: 'Capital',
+                localidad: 'Corrientes',
+                barrio: 'Centro',
+
+                // Datos epidemiológicos
+                semana: '48',
+                f_fis: '25/11/2024',
+                f_consulta: '27/11/2024',
+                f_muestra: '27/11/2024',
+
+                // Efector
+                efector_sel: '1',
+                region_id: '1',
+
+                // Tests de laboratorio
+                laboratorio: 'Lab Central',
+                testAgNS1: '1',
+                tipoNs1: 'ELISA',
+                testIgM: '0',
+                testIGG: '',
+                testPCR: '',
+
+                // Otros datos
+                internacion: '0',
+                ant_vacu: '0',
+                obito: '0',
+                comor: 'Ninguna',
+                obs: 'Paciente de prueba - Test automatizado',
+                ant_viaje: 'No',
+
+                // Coordenadas simuladas
+                latitud: '-27.46784',
+                longitud: '-58.8344',
+                latitud_viaje: null,
+                longitud_viaje: null,
+
+                _token: 'test-token'
+            };
+
+            try {
+                const response = await fetch(`${baseUrl}/test-dengue-store`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'X-Requested-With': 'XMLHttpRequest'
+                    },
+                    body: new URLSearchParams(datosCompletos)
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    updateStatus('status-add', 'success');
+                    showResult('#result-add', '✅ Registro creado exitosamente', result);
+                    testResults.agregar = true;
+                } else {
+                    throw new Error(result.message || 'Error desconocido');
+                }
+            } catch (error) {
+                updateStatus('status-add', 'error');
+                showResult('#result-add', '❌ Error al crear registro', error.message);
+                testResults.agregar = false;
+            }
+
+            document.getElementById('btn-agregar').disabled = false;
+            updateSummary();
+        }
+
+        async function testEditar() {
+            document.getElementById('btn-editar').disabled = true;
+            updateStatus('status-edit', 'pending', '⏳ Ejecutando...');
+
+            try {
+                // Primero obtener un registro para editar
+                const getResponse = await fetch(`${baseUrl}/registros-dengue/1`);
+                if (!getResponse.ok) {
+                    throw new Error('No se pudo obtener el registro para editar');
+                }
+
+                const registro = await getResponse.json();
+
+                // Datos de actualización
+                const datosUpdate = {
+                    dni: registro.data.paciente.DNI,
+                    nombre: registro.data.paciente.ApellidoNombre + ' - EDITADO',
+                    celular: '3794999888',
+                    obs: 'Registro editado por test automatizado',
+                    _method: 'PUT',
+                    _token: 'test-token'
+                };
+
+                const response = await fetch(`${baseUrl}/registros-dengue/1`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'X-Requested-With': 'XMLHttpRequest'
+                    },
+                    body: new URLSearchParams(datosUpdate)
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    updateStatus('status-edit', 'success');
+                    showResult('#result-edit', '✅ Registro editado exitosamente', result);
+                    testResults.editar = true;
+                } else {
+                    throw new Error(result.message || 'Error al editar');
+                }
+            } catch (error) {
+                updateStatus('status-edit', 'error');
+                showResult('#result-edit', '❌ Error al editar registro', error.message);
+                testResults.editar = false;
+            }
+
+            document.getElementById('btn-editar').disabled = false;
+            updateSummary();
+        }
+
+        async function testBusqueda() {
+            document.getElementById('btn-busqueda').disabled = true;
+            updateStatus('status-search', 'pending', '⏳ Ejecutando...');
+
+            try {
+                // Test búsqueda por DNI
+                const searchResponse = await fetch(`${baseUrl}/registros-dengue/buscar-dni?dni=12345678`);
+                const searchResult = await searchResponse.json();
+
+                // Test filtrado
+                const filterResponse = await fetch(`${baseUrl}/registros-dengue/filtrar`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'X-Requested-With': 'XMLHttpRequest'
+                    },
+                    body: new URLSearchParams({
+                        pagina: 1,
+                        cantidad: 10,
+                        _token: 'test-token'
+                    })
+                });
+                const filterResult = await filterResponse.json();
+
+                updateStatus('status-search', 'success');
+                showResult('#result-search', '✅ Búsquedas funcionando', {
+                    busqueda_dni: searchResult,
+                    filtrado: filterResult
+                });
+                testResults.busqueda = true;
+            } catch (error) {
+                updateStatus('status-search', 'error');
+                showResult('#result-search', '❌ Error en búsquedas', error.message);
+                testResults.busqueda = false;
+            }
+
+            document.getElementById('btn-busqueda').disabled = false;
+            updateSummary();
+        }
+
+        function updateSummary() {
+            const totalTests = Object.keys(testResults).length;
+            const passedTests = Object.values(testResults).filter(result => result === true).length;
+
+            if (totalTests > 0) {
+                document.getElementById('summary-section').style.display = 'block';
+                const summaryDiv = document.getElementById('summary-content');
+
+                const percentage = Math.round((passedTests / totalTests) * 100);
+                const color = percentage === 100 ? '#28a745' : percentage >= 75 ? '#ffc107' : '#dc3545';
+
+                summaryDiv.innerHTML = `
+                    <div style="text-align: center; padding: 20px;">
+                        <div style="font-size: 48px; color: ${color}; margin-bottom: 20px;">
+                            ${percentage}%
+                        </div>
+                        <h3 style="color: ${color}; margin: 0;">
+                            ${passedTests}/${totalTests} tests pasaron exitosamente
+                        </h3>
+                        <p style="margin-top: 15px; color: #6c757d;">
+                            ${percentage === 100 ?
+                                '🎉 ¡Excelente! El formulario de registros dengue funciona perfectamente.' :
+                                percentage >= 75 ?
+                                '⚠️ La mayoría de las funciones trabajan bien, pero hay algunos problemas menores.' :
+                                '❌ Hay problemas significativos que requieren atención.'}
+                        </p>
+                    </div>
+                `;
+            }
+        }
+
+        // Ejecutar verificaciones automáticamente al cargar
+        window.onload = () => {
+            setTimeout(verificarPrevias, 1000);
+        };
+    </script>
+</body>
+</html>

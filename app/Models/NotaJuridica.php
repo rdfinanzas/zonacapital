@@ -14,6 +14,58 @@ class NotaJuridica extends Model
     protected $table = 'notas_juridicas';
     protected $primaryKey = 'idNotaJuridica';
 
+    /**
+     * ESTADOS DISPONIBLES - IDs numéricos
+     * Modificar solo aquí para agregar/quitar/cambiar estados
+     * Formato: ID => ['texto' => 'NOMBRE', 'badge' => 'clase-bootstrap']
+     */
+    public const ESTADOS = [
+        1 => ['texto' => 'PENDIENTE', 'badge' => 'bg-warning'],
+        2 => ['texto' => 'CEDULA ENVIADA', 'badge' => 'bg-info'],
+        3 => ['texto' => 'CON DESCARGO', 'badge' => 'bg-success'],
+        4 => ['texto' => 'SIN DESCARGO', 'badge' => 'bg-danger'],
+        5 => ['texto' => 'DICTAMEN', 'badge' => 'bg-primary'],
+        6 => ['texto' => 'DISPOSICION', 'badge' => 'bg-secondary'],
+        7 => ['texto' => 'ELEVACION MSP', 'badge' => 'bg-dark'],
+        8 => ['texto' => 'ARCHIVO', 'badge' => 'bg-light text-dark'],
+    ];
+
+    /**
+     * Validación de estados para request (usar IDs numéricos)
+     */
+    public static function getEstadosValidacion(): string
+    {
+        return 'in:' . implode(',', array_keys(self::ESTADOS));
+    }
+
+    /**
+     * Obtener texto del estado
+     */
+    public function getEstadoTextoAttribute(): string
+    {
+        return self::ESTADOS[$this->estado]['texto'] ?? 'DESCONOCIDO';
+    }
+
+    /**
+     * Obtener clase de badge según estado
+     */
+    public function getEstadoBadgeClass(): string
+    {
+        return self::ESTADOS[$this->estado]['badge'] ?? 'bg-secondary';
+    }
+
+    /**
+     * Accesor para devolver el estado con su texto en JSON
+     */
+    public function getEstadoConTextoAttribute(): array
+    {
+        return [
+            'id' => $this->estado,
+            'texto' => $this->estado_texto,
+            'badge' => $this->getEstadoBadgeClass()
+        ];
+    }
+
     protected $fillable = [
         'numero',
         'anio',
@@ -28,6 +80,8 @@ class NotaJuridica extends Model
         'leyenda_encabezado',
         'google_drive_file_id',
         'google_drive_link',
+        'google_doc_id',
+        'google_doc_link',
         'tipo',
         'estado',
         'es_plantilla',
@@ -70,6 +124,14 @@ class NotaJuridica extends Model
     }
 
     /**
+     * Relación con historial de novedades
+     */
+    public function historial()
+    {
+        return $this->hasMany(NotaJuridicaHistorial::class, 'nota_juridica_id', 'idNotaJuridica')->orderBy('created_at', 'desc');
+    }
+
+    /**
      * Accessor para obtener el número completo (formato: numero/anio)
      */
     public function getNumeroCompletoAttribute(): string
@@ -91,15 +153,52 @@ class NotaJuridica extends Model
     }
 
     /**
-     * Accessor para el tipo con etiqueta
+     * Accessor para el tipo con etiqueta (ahora puede ser combinado)
      */
     public function getTipoLabelAttribute(): string
     {
-        return match($this->tipo) {
-            'creada' => 'Creada',
-            'adjunta' => 'Adjunta',
-            default => 'N/A'
-        };
+        $tieneGoogleDoc = !empty($this->google_doc_id) || !empty($this->google_doc_link);
+        $tieneArchivo = !empty($this->archivo_path) || !empty($this->google_drive_file_id);
+
+        if ($tieneGoogleDoc && $tieneArchivo) {
+            return 'Completa';
+        } elseif ($tieneGoogleDoc) {
+            return 'Creada';
+        } elseif ($tieneArchivo) {
+            return 'Adjunta';
+        }
+        return 'N/A';
+    }
+
+    /**
+     * Verificar si tiene Google Doc
+     */
+    public function tieneGoogleDoc(): bool
+    {
+        return !empty($this->google_doc_id) || !empty($this->google_doc_link);
+    }
+
+    /**
+     * Verificar si tiene archivo adjunto
+     */
+    public function tieneArchivoAdjunto(): bool
+    {
+        return !empty($this->archivo_path) || !empty($this->google_drive_file_id);
+    }
+
+    /**
+     * Obtener iconos según lo que tenga la nota
+     */
+    public function getIconosAttribute(): string
+    {
+        $iconos = [];
+        if ($this->tieneGoogleDoc()) {
+            $iconos[] = '<i class="fas fa-edit text-primary" title="Con Google Doc"></i>';
+        }
+        if ($this->tieneArchivoAdjunto()) {
+            $iconos[] = '<i class="fas fa-paperclip text-success" title="Con archivo adjunto"></i>';
+        }
+        return implode(' ', $iconos);
     }
 
     /**
@@ -124,9 +223,9 @@ class NotaJuridica extends Model
     }
 
     /**
-     * Scope para filtrar por estado
+     * Scope para filtrar por estado (ID numérico)
      */
-    public function scopePorEstado($query, string $estado)
+    public function scopePorEstado($query, int $estado)
     {
         return $query->where('estado', $estado);
     }

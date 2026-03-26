@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Directo Actualización Dengue</title>
+    <meta name="csrf-token" content="test-token">
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }
+        .success { background-color: #d4edda; border-color: #c3e6cb; }
+        .error { background-color: #f8d7da; border-color: #f5c6cb; }
+        .pending { background-color: #fff3cd; border-color: #ffeaa7; }
+        .result { margin-top: 10px; padding: 10px; border-radius: 3px; }
+        button { padding: 8px 16px; margin: 5px; cursor: pointer; }
+        pre { background: #f8f9fa; padding: 10px; border-radius: 3px; overflow-x: auto; max-height: 400px; }
+    </style>
+</head>
+<body>
+    <h1>Test Directo de Actualización Dengue</h1>
+
+    <div class="test-section">
+        <h3>1. Establecer sesión primero</h3>
+        <button onclick="establecerSesion()">Establecer Sesión</button>
+        <div id="result-sesion"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>2. Obtener token CSRF válido</h3>
+        <button onclick="obtenerToken()">Obtener Token CSRF</button>
+        <div id="result-token"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>3. Test PUT directo</h3>
+        <button onclick="testPutDirecto()">Test PUT con token correcto</button>
+        <div id="result-put"></div>
+    </div>
+
+    <script>
+        let csrfToken = '';
+
+        function establecerSesion() {
+            const resultDiv = $('#result-sesion');
+            resultDiv.html('<div class="result pending">Estableciendo sesión...</div>');
+
+            fetch('/simular-login/1')
+                .then(response => {
+                    if(response.ok) {
+                        resultDiv.html('<div class="result success">✅ Sesión establecida correctamente</div>');
+                    } else {
+                        resultDiv.html('<div class="result error">❌ Error al establecer sesión</div>');
+                    }
+                })
+                .catch(error => {
+                    resultDiv.html('<div class="result error">❌ Error: ' + error + '</div>');
+                });
+        }
+
+        function obtenerToken() {
+            const resultDiv = $('#result-token');
+            resultDiv.html('<div class="result pending">Obteniendo token...</div>');
+
+            fetch('/registros-dengue')
+                .then(response => response.text())
+                .then(html => {
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(html, 'text/html');
+                    csrfToken = doc.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+
+                    if(csrfToken) {
+                        resultDiv.html(`<div class="result success">✅ Token obtenido: <code>${csrfToken}</code></div>`);
+                        $('meta[name="csrf-token"]').attr('content', csrfToken);
+                    } else {
+                        resultDiv.html('<div class="result error">❌ No se pudo obtener el token CSRF</div>');
+                    }
+                })
+                .catch(error => {
+                    resultDiv.html('<div class="result error">❌ Error: ' + error + '</div>');
+                });
+        }
+
+        function testPutDirecto() {
+            const resultDiv = $('#result-put');
+
+            if(!csrfToken) {
+                resultDiv.html('<div class="result error">❌ Primero obten el token CSRF</div>');
+                return;
+            }
+
+            resultDiv.html('<div class="result pending">Probando PUT...</div>');
+
+            const formData = new FormData();
+            formData.append('nombre', 'Test Usuario Actualizado DIRECTO');
+            formData.append('dni', '12345678');
+            formData.append('sexo', 'M');
+            formData.append('_method', 'PUT');
+
+            // Test con fetch para mejor control
+            fetch('/registros-dengue/1', {
+                method: 'POST',
+                body: formData,
+                headers: {
+                    'X-CSRF-TOKEN': csrfToken,
+                    'Accept': 'application/json'
+                }
+            })
+            .then(response => {
+                console.log('Status:', response.status);
+                console.log('Headers:', [...response.headers.entries()]);
+
+                const contentType = response.headers.get('content-type');
+
+                if(contentType && contentType.includes('application/json')) {
+                    return response.json().then(data => ({
+                        isJson: true,
+                        data: data,
+                        status: response.status
+                    }));
+                } else {
+                    return response.text().then(text => ({
+                        isJson: false,
+                        data: text,
+                        status: response.status
+                    }));
+                }
+            })
+            .then(result => {
+                if(result.isJson) {
+                    resultDiv.html(`
+                        <div class="result success">
+                            <strong>✅ Respuesta JSON correcta (Status: ${result.status})</strong>
+                            <pre>${JSON.stringify(result.data, null, 2)}</pre>
+                        </div>
+                    `);
+                } else {
+                    resultDiv.html(`
+                        <div class="result error">
+                            <strong>❌ El servidor devolvió HTML en lugar de JSON (Status: ${result.status})</strong>
+                            <p><strong>Content-Type no es JSON</strong></p>
+                            <pre>${result.data.substring(0, 1000)}${result.data.length > 1000 ? '...' : ''}</pre>
+                        </div>
+                    `);
+                }
+            })
+            .catch(error => {
+                resultDiv.html(`
+                    <div class="result error">
+                        <strong>❌ Error en la petición</strong>
+                        <p>${error}</p>
+                    </div>
+                `);
+            });
+        }
+
+        // Auto ejecutar establecer sesión al cargar
+        $(document).ready(function() {
+            establecerSesion();
+        });
+    </script>
+</body>
+</html>

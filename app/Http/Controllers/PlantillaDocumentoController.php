@@ -88,10 +88,13 @@ class PlantillaDocumentoController extends Controller
             }
 
             if (!$modulo) {
+                // Si no existe el módulo, devolver data vacía en lugar de error
                 return response()->json([
-                    'success' => false,
-                    'message' => 'Módulo no encontrado'
-                ], 404);
+                    'success' => true,
+                    'modulo_id' => null,
+                    'data' => [],
+                    'message' => 'Módulo no registrado'
+                ]);
             }
 
             $plantillas = PlantillaDocumento::porModulo($modulo->IdModulo)
@@ -106,9 +109,12 @@ class PlantillaDocumentoController extends Controller
 
         } catch (\Exception $e) {
             Log::error('Error al obtener plantillas por módulo: ' . $e->getMessage());
+            Log::error('Stack trace: ' . $e->getTraceAsString());
             return response()->json([
                 'success' => false,
-                'message' => 'Error al obtener las plantillas'
+                'message' => 'Error al obtener las plantillas: ' . $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine()
             ], 500);
         }
     }

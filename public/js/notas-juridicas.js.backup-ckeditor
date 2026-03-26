@@ -1,0 +1,1456 @@
+/**
+ * Módulo de Notas Jurídicas
+ * Flujo: Index (lista) → Formulario → Modal Editor (CKEditor)
+ */
+document.addEventListener('DOMContentLoaded', function () {
+    // ============================================
+    // ELEMENTOS DEL DOM
+    // ============================================
+
+    // Paneles
+    const panelList = document.getElementById('panel_list');
+    const panelForm = document.getElementById('panel_form');
+    const cardHeaderFiltros = document.getElementById('card_header_filtros');
+
+    // Botones principales
+    const btnFiltrar = document.getElementById('btn-filtrar');
+    const btnLimpiarFiltros = document.getElementById('btn-limpiar-filtros');
+    const btnAdd = document.getElementById('btn_add');
+    const btnVolver = document.getElementById('btn_volver');
+    const btnLimpiar = document.getElementById('btn_limpiar');
+    const btnAbrirEditor = document.getElementById('btn_abrir_editor');
+    const form = document.getElementById('form_nota');
+
+    // Filtros
+    const inputAnio = document.getElementById('anio_filtro');
+    const inputFechaDesde = document.getElementById('fecha_desde');
+    const inputFechaHasta = document.getElementById('fecha_hasta');
+    const inputPersonal = document.getElementById('personal_filtro');
+    const inputNumero = document.getElementById('numero_filtro');
+    const inputBusqueda = document.getElementById('busqueda_filtro');
+    const inputEstado = document.getElementById('estado_filtro');
+
+    // Campos del formulario
+    const notaIdEl = document.getElementById('nota_id');
+    const numeroEl = document.getElementById('numero');
+    const anioEl = document.getElementById('anio');
+    const fechaCreacionEl = document.getElementById('fecha_creacion');
+    const personalIdEl = document.getElementById('personal_id');
+    const tituloEl = document.getElementById('titulo');
+    const descripcionEl = document.getElementById('descripcion');
+    const configuracionEl = document.getElementById('configuracion');
+    const observacionEl = document.getElementById('observacion');
+    const notaReferenciaEl = document.getElementById('nota_referencia_id');
+    const estadoFormEl = document.getElementById('estado');
+    const tipoCreadaEl = document.getElementById('tipo_creada');
+    const tipoAdjuntaEl = document.getElementById('tipo_adjunta');
+    const googleDocIdEl = document.getElementById('google_doc_id');
+    const googleDocLinkEl = document.getElementById('google_doc_link');
+
+    // Contenedores según tipo de nota
+    const contenedorNotaCreada = document.getElementById('contenedor_nota_creada');
+    const contenedorNotaAdjunta = document.getElementById('contenedor_nota_adjunta');
+
+    // Elementos de archivo adjunto
+    const archivoNotaEl = document.getElementById('archivo_nota');
+    const archivoPreviewContainer = document.getElementById('archivo_preview_container');
+    const archivoIcon = document.getElementById('archivo_icon');
+    const archivoNombreEl = document.getElementById('archivo_nombre');
+    const btnEliminarArchivo = document.getElementById('btn_eliminar_archivo');
+    const imagenPreview = document.getElementById('imagen_preview');
+    const imgPreviewEl = document.getElementById('img_preview');
+    const pdfPreview = document.getElementById('pdf_preview');
+    const archivoBase64El = document.getElementById('archivo_base64');
+    const archivoNombreRealEl = document.getElementById('archivo_nombre_real');
+    const archivoTipoEl = document.getElementById('archivo_tipo');
+
+    // Preview de contenido
+    const contenidoPreview = document.getElementById('contenido_preview');
+
+    // Plantilla
+    const esPlantillaEl = document.getElementById('es_plantilla');
+    const nombrePlantillaEl = document.getElementById('nombre_plantilla');
+    const contenedorNombrePlantilla = document.getElementById('contenedor_nombre_plantilla');
+    const contenedorPlantilla = document.getElementById('contenedor_plantilla');
+    const contenedorPreviewArchivo = document.getElementById('contenedor_preview_archivo');
+    const archivoSinPreview = document.getElementById('archivo_sin_preview');
+
+    // Título del formulario
+    const tituloFormulario = document.getElementById('titulo_formulario');
+
+    // Tabla
+    const tbody = document.getElementById('tbody-notas');
+
+    // ============================================
+    // VARIABLES DE ESTADO
+    // ============================================
+    let currentPage = 1;
+    let lastPage = 1;
+    let perPage = 15;
+    let notaEditandoId = null;
+    let moduloId = null;
+    let configuracionActual = null;
+
+    const csrfToken = window.csrfToken || document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+    const routes = window.laravelRoutes || {};
+
+    // ============================================
+    // INICIALIZACIÓN
+    // ============================================
+    async function init() {
+        await cargarModuloId();
+        cargarNotas(1);
+        cargarPlantillas();
+        initSelect2();
+        setupEventListeners();
+    }
+
+    async function cargarModuloId() {
+        try {
+            const resp = await fetch('/plantillas-documentos/por-modulo?modulo_url=laravel-notas-juridicas', {
+                headers: { 'Accept': 'application/json' }
+            });
+            const data = await resp.json();
+            if (data.success && data.modulo_id) {
+                moduloId = data.modulo_id;
+                window.moduloId = moduloId;
+                if (window.EditorNotas && window.EditorNotas['modalEditorNotas']) {
+                    window.EditorNotas['modalEditorNotas'].moduloId = moduloId;
+                }
+            } else {
+                console.log('Módulo no registrado, las plantillas se guardarán sin módulo asociado');
+            }
+        } catch (e) {
+            console.log('No se pudo cargar módulo ID (esto es normal si el módulo no está registrado)');
+        }
+    }
+
+    function initSelect2() {
+        if (typeof $.fn.select2 === 'undefined') return;
+
+        $(personalIdEl).select2({
+            theme: 'bootstrap-5',
+            width: '100%',
+            dropdownParent: $('#panel_form'),
+            placeholder: '- SELECCIONAR -',
+            ajax: {
+                url: '/personal/buscar',
+                dataType: 'json',
+                delay: 250,
+                data: function(params) {
+                    return { query: params.term };
+                },
+                processResults: function(data) {
+                    // El controlador devuelve { id, value, tokens }, Select2 necesita { id, text }
+                    const results = (data || []).map(function(item) {
+                        return {
+                            id: item.id,
+                            text: item.value,
+                            Apellido: item.tokens ? item.tokens[0] : '',
+                            Nombre: item.tokens ? item.tokens[1] : ''
+                        };
+                    });
+                    return { results: results };
+                },
+                cache: true
+            },
+            minimumInputLength: 2,
+            templateResult: function(data) {
+                if (data.loading) return data.text;
+                return `${data.Apellido || ''}, ${data.Nombre || ''} (${data.DNI || ''})`;
+            },
+            templateSelection: function(data) {
+                return data.text || `${data.Apellido || ''}, ${data.Nombre || ''}`;
+            }
+        });
+
+        $(notaReferenciaEl).select2({
+            theme: 'bootstrap-5',
+            width: '100%',
+            dropdownParent: $('#panel_form'),
+            placeholder: '- SIN REFERENCIA -',
+            allowClear: true,
+            ajax: {
+                url: routes.notasJuridicasBuscar,
+                dataType: 'json',
+                delay: 250,
+                data: function(params) {
+                    return { q: params.term, page: params.page || 1 };
+                },
+                processResults: function(data) {
+                    return {
+                        results: data.results || [],
+                        pagination: data.pagination || { more: false }
+                    };
+                },
+                cache: true
+            },
+            minimumInputLength: 1
+        });
+    }
+
+    // ============================================
+    // EVENT LISTENERS
+    // ============================================
+    function setupEventListeners() {
+        // Filtros
+        if (btnFiltrar) {
+            btnFiltrar.addEventListener('click', function(e) {
+                e.preventDefault();
+                cargarNotas(1);
+            });
+        }
+
+        if (btnLimpiarFiltros) {
+            btnLimpiarFiltros.addEventListener('click', limpiarFiltros);
+        }
+
+        // Navegación: Index → Formulario
+        if (btnAdd) {
+            btnAdd.addEventListener('click', mostrarFormulario);
+        }
+
+        // Navegación: Formulario → Index
+        if (btnVolver) {
+            btnVolver.addEventListener('click', mostrarLista);
+        }
+
+        // Limpiar formulario
+        if (btnLimpiar) {
+            btnLimpiar.addEventListener('click', limpiarFormulario);
+        }
+
+        // Botón "Generar Notas" - Crear documento en Google Drive
+        const btnAbrirDocDrive = document.getElementById('btn_abrir_doc_drive');
+        if (btnAbrirDocDrive) {
+            btnAbrirDocDrive.addEventListener('click', crearDocumentoDrive);
+        }
+
+        // Abrir editor de notas
+        if (btnAbrirEditor) {
+            btnAbrirEditor.addEventListener('click', function() {
+                const editor = window.EditorNotas && window.EditorNotas['modalEditorNotas'];
+                if (!editor) {
+                    console.error('EditorNotas no está inicializado');
+                    return;
+                }
+
+                // Limpiar formulario
+                editor.limpiar();
+
+                // Abrir modal
+                editor.abrir(
+                    // Callback: Guardar nota desde el modal (vuelve al formulario)
+                    function(config) {
+                        console.log('Callback guardar ejecutado con config:', config);
+                        configuracionActual = config;
+
+                        // Guardar en campos ocultos
+                        if (descripcionEl) descripcionEl.value = config.contenido || '';
+                        if (configuracionEl) configuracionEl.value = JSON.stringify(config);
+
+                        // Actualizar vista previa
+                        actualizarVistaContenido(config);
+
+                        // Cerrar modal
+                        editor.cerrar();
+
+                        mostrarMensaje('Contenido de la nota actualizado', 'success');
+                    },
+                    // Callback: Guardar como plantilla
+                    function(nombre, config) {
+                        guardarPlantillaDesdeModal(nombre, config);
+                    }
+                );
+            });
+        }
+
+        // Cambio de tipo de nota (creada/adjunta)
+        if (tipoCreadaEl) {
+            tipoCreadaEl.addEventListener('change', function() {
+                if (this.checked) {
+                    mostrarContenedorCreada();
+                }
+            });
+        }
+        if (tipoAdjuntaEl) {
+            tipoAdjuntaEl.addEventListener('change', function() {
+                if (this.checked) {
+                    mostrarContenedorAdjunta();
+                }
+            });
+        }
+
+        // Google Docs - Mostrar selector de plantillas al marcar checkbox
+        const crearGoogleDocEl = document.getElementById('crear_google_doc');
+        const contenedorPlantillasDrive = document.getElementById('contenedor_plantillas_drive');
+        const googleDocTemplateEl = document.getElementById('google_doc_template_id');
+        
+        if (crearGoogleDocEl) {
+            crearGoogleDocEl.addEventListener('change', function() {
+                if (this.checked) {
+                    if (contenedorPlantillasDrive) {
+                        contenedorPlantillasDrive.classList.remove('d-none');
+                    }
+                    cargarPlantillasDrive();
+                } else {
+                    if (contenedorPlantillasDrive) {
+                        contenedorPlantillasDrive.classList.add('d-none');
+                    }
+                }
+            });
+        }
+
+        // Cargar plantillas desde Google Drive
+        async function cargarPlantillasDrive() {
+            if (!googleDocTemplateEl || !window.laravelRoutes.notasJuridicasPlantillasDrive) return;
+            
+            try {
+                const response = await fetch(window.laravelRoutes.notasJuridicasPlantillasDrive, {
+                    headers: {
+                        'X-CSRF-TOKEN': csrfToken,
+                        'Accept': 'application/json'
+                    }
+                });
+                const data = await response.json();
+                
+                if (data.success && data.data) {
+                    googleDocTemplateEl.innerHTML = '<option value="">- Seleccionar Plantilla -</option>';
+                    data.data.forEach(doc => {
+                        const option = document.createElement('option');
+                        option.value = doc.id;
+                        option.textContent = doc.name;
+                        googleDocTemplateEl.appendChild(option);
+                    });
+                }
+            } catch (error) {
+                console.error('Error cargando plantillas Drive:', error);
+            }
+        }
+
+        // Selección de archivo
+        if (archivoNotaEl) {
+            archivoNotaEl.addEventListener('change', manejarSeleccionArchivo);
+        }
+
+        // Eliminar archivo
+        if (btnEliminarArchivo) {
+            btnEliminarArchivo.addEventListener('click', eliminarArchivoSeleccionado);
+        }
+
+        // Guardar formulario
+        if (form) {
+            form.addEventListener('submit', function(e) {
+                e.preventDefault();
+                guardarNota();
+            });
+        }
+
+        // Filtro por año
+        if (inputAnio) {
+            inputAnio.addEventListener('change', function() {
+                cargarNotas(1);
+            });
+        }
+
+        // Cambio de fecha
+        if (fechaCreacionEl) {
+            fechaCreacionEl.addEventListener('change', function() {
+                const fecha = new Date(this.value);
+                if (anioEl) anioEl.value = fecha.getFullYear();
+                cargarProximoNumero();
+            });
+        }
+
+        // Checkbox de plantilla
+        if (esPlantillaEl) {
+            esPlantillaEl.addEventListener('change', function() {
+                if (this.checked) {
+                    contenedorNombrePlantilla.classList.remove('d-none');
+                    nombrePlantillaEl.focus();
+                } else {
+                    contenedorNombrePlantilla.classList.add('d-none');
+                    nombrePlantillaEl.value = '';
+                }
+            });
+        }
+
+        // Búsqueda con Enter
+        [inputPersonal, inputNumero, inputBusqueda].forEach(function(input) {
+            if (input) {
+                input.addEventListener('keypress', function(e) {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        cargarNotas(1);
+                    }
+                });
+            }
+        });
+    }
+
+    // ============================================
+    // NAVEGACIÓN
+    // ============================================
+    function mostrarFormulario() {
+        limpiarFormulario();
+
+        // Ocultar header de filtros
+        if (cardHeaderFiltros) cardHeaderFiltros.style.display = 'none';
+
+        // Mostrar formulario
+        panelList.classList.add('d-none');
+        panelForm.classList.remove('d-none');
+
+        // Reinicializar Select2
+        setTimeout(() => {
+            if (typeof $.fn.select2 !== 'undefined') {
+                $(personalIdEl).select2('destroy');
+                $(notaReferenciaEl).select2('destroy');
+                initSelect2();
+            }
+        }, 100);
+
+        cargarProximoNumero();
+    }
+
+    function mostrarLista() {
+        if (cardHeaderFiltros) cardHeaderFiltros.style.display = 'block';
+
+        panelForm.classList.add('d-none');
+        panelList.classList.remove('d-none');
+
+        limpiarFormulario();
+        cargarNotas(currentPage);
+    }
+
+    function limpiarFormulario() {
+        notaEditandoId = null;
+        configuracionActual = null;
+
+        if (form) form.reset();
+
+        // Resetear campos específicos
+        if (notaIdEl) notaIdEl.value = '';
+        if (anioEl) anioEl.value = new Date().getFullYear();
+        if (fechaCreacionEl) fechaCreacionEl.value = new Date().toISOString().split('T')[0];
+        if (estadoFormEl) estadoFormEl.value = 'borrador';
+        if (descripcionEl) descripcionEl.value = '';
+        if (configuracionEl) configuracionEl.value = '';
+        if (googleDocIdEl) googleDocIdEl.value = '';
+        if (googleDocLinkEl) googleDocLinkEl.value = '';
+        if (tipoAdjuntaEl) tipoAdjuntaEl.checked = true;  // Por defecto Adjunta
+
+        // Resetear Select2
+        if (typeof $.fn.select2 !== 'undefined') {
+            $(personalIdEl).val('').trigger('change');
+            $(notaReferenciaEl).val('').trigger('change');
+        }
+
+        // Resetear vista de contenido
+        actualizarVistaContenido(null);
+
+        // Mostrar contenedor de nota adjunta por defecto
+        mostrarContenedorAdjunta();
+
+        // Resetear campos de archivo
+        eliminarArchivoSeleccionado();
+
+        // Resetear plantilla
+        if (esPlantillaEl) esPlantillaEl.checked = false;
+        if (contenedorNombrePlantilla) contenedorNombrePlantilla.classList.add('d-none');
+        if (nombrePlantillaEl) nombrePlantillaEl.value = '';
+
+        // Resetear título
+        if (tituloFormulario) {
+            tituloFormulario.innerHTML = '<i class="fas fa-file-alt"></i> Nueva Nota Jurídica';
+        }
+
+        // Resetear botón submit
+        const btnSubmit = form?.querySelector('button[type="submit"]');
+        if (btnSubmit) {
+            btnSubmit.innerHTML = '<i class="fas fa-save"></i> Guardar';
+        }
+    }
+
+    // ============================================
+    // EDITOR DE NOTAS (MODAL CKEditor)
+    // ============================================
+    function abrirEditorNota() {
+        console.log('Abriendo editor de notas...');
+
+        const editor = window.EditorNotas?.['modalEditorNotas'];
+        console.log('Editor encontrado:', editor);
+
+        if (!editor) {
+            alert('El editor de notas no está disponible. Recargue la página.');
+            return;
+        }
+
+        // Si hay configuración guardada, cargarla
+        if (configuracionActual) {
+            editor.cargarConfiguracion(configuracionActual);
+        } else {
+            editor.limpiar();
+        }
+
+        // Abrir el modal con callbacks
+        editor.abrir(
+            // Callback: Guardar nota desde el modal (vuelve al formulario)
+            function(config) {
+                console.log('Callback guardar ejecutado con config:', config);
+                configuracionActual = config;
+
+                // Guardar en campos ocultos
+                if (descripcionEl) descripcionEl.value = config.contenido || '';
+                if (configuracionEl) configuracionEl.value = JSON.stringify(config);
+
+                // Actualizar vista previa
+                actualizarVistaContenido(config);
+
+                // Cerrar modal
+                editor.cerrar();
+
+                mostrarMensaje('Contenido de la nota actualizado', 'success');
+            },
+            // Callback: Guardar como plantilla
+            function(nombre, config) {
+                guardarPlantillaDesdeModal(nombre, config);
+            }
+        );
+    }
+
+    function actualizarVistaContenido(config) {
+        if (!contenidoPreview) return;
+
+        if (config && config.contenido && config.contenido.trim()) {
+            // Mostrar contenido
+            contenidoPreview.classList.remove('vacia');
+            contenidoPreview.innerHTML = config.contenido;
+        } else {
+            // Mostrar vista vacía
+            contenidoPreview.classList.add('vacia');
+            contenidoPreview.innerHTML = '<span><i class="fas fa-file-alt fa-2x mb-2"></i><br>Haga click en "Ver/Edit Nota" para agregar contenido</span>';
+        }
+    }
+
+    // ============================================
+    // DATOS
+    // ============================================
+    async function cargarNotas(page = 1) {
+        const params = new URLSearchParams();
+
+        if (inputAnio && inputAnio.value) params.append('anio', inputAnio.value);
+        if (inputFechaDesde && inputFechaDesde.value) params.append('fecha_desde', inputFechaDesde.value);
+        if (inputFechaHasta && inputFechaHasta.value) params.append('fecha_hasta', inputFechaHasta.value);
+        if (inputPersonal && inputPersonal.value.trim()) params.append('personal', inputPersonal.value.trim());
+        if (inputNumero && inputNumero.value.trim()) params.append('numero', inputNumero.value.trim());
+        if (inputBusqueda && inputBusqueda.value.trim()) params.append('busqueda', inputBusqueda.value.trim());
+        if (inputEstado && inputEstado.value) params.append('estado', inputEstado.value);
+
+        params.append('page', page);
+        params.append('per_page', perPage);
+
+        try {
+            const url = `${routes.notasJuridicasFiltrar}?${params.toString()}`;
+            const resp = await fetch(url, { headers: { 'Accept': 'application/json' } });
+
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+            const data = await resp.json();
+            currentPage = data.current_page || 1;
+            lastPage = data.last_page || 1;
+
+            renderTabla(data.data || []);
+            renderPaginacion(data);
+
+        } catch (e) {
+            console.error('Error cargando notas:', e);
+            tbody.innerHTML = '<tr><td colspan="8" class="text-center text-danger">Error al cargar las notas</td></tr>';
+        }
+    }
+
+    async function cargarProximoNumero() {
+        const anio = anioEl ? anioEl.value : new Date().getFullYear();
+
+        try {
+            const resp = await fetch(`${routes.notasJuridicasProximoNumero}?anio=${anio}`, {
+                headers: { 'Accept': 'application/json' }
+            });
+            const data = await resp.json();
+
+            if (data.success && numeroEl) {
+                numeroEl.value = data.numero;
+            }
+        } catch (e) {
+            console.error('Error obteniendo número:', e);
+        }
+    }
+
+    function renderTabla(items) {
+        tbody.innerHTML = '';
+
+        if (!items || items.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-4">No se encontraron notas</td></tr>';
+            return;
+        }
+
+        items.forEach(function(nota) {
+            const tr = document.createElement('tr');
+
+            const numeroCompleto = `${nota.numero}/${nota.anio}`;
+            const fechaFormateada = formatearFecha(nota.fecha_creacion);
+            const personalNombre = nota.personal ? `${nota.personal.Apellido}, ${nota.personal.Nombre}` : '-';
+            const tipoLabel = nota.tipo === 'creada' ? 'Creada' : 'Adjunta';
+            const tipoIcon = nota.tipo === 'creada' ? 'fa-edit' : 'fa-paperclip';
+            const estadoLabel = capitalizeFirst(nota.estado);
+            const estadoClass = `badge-${nota.estado}`;
+            const creadorNombre = nota.creador ? `${nota.creador.Apellido}, ${nota.creador.Nombre}` : '-';
+
+            tr.innerHTML = `
+                <td class="text-center"><strong>${numeroCompleto}</strong></td>
+                <td class="text-center">${fechaFormateada}</td>
+                <td>${nota.titulo || ''}</td>
+                <td>${personalNombre}</td>
+                <td class="text-center">
+                    <span class="badge bg-info"><i class="fas ${tipoIcon}"></i> ${tipoLabel}</span>
+                </td>
+                <td class="text-center">
+                    <span class="badge ${estadoClass}">${estadoLabel}</span>
+                </td>
+                <td class="text-center" style="font-size: 0.8em;">${creadorNombre}</td>
+                <td>
+                    <div class="btn-group btn-group-sm">
+                        <button class="btn btn-primary btn-editar" data-id="${nota.idNotaJuridica}" title="Editar">
+                            <i class="fas fa-edit"></i>
+                        </button>
+                        <a class="btn btn-success" target="_blank" href="${routes.notasJuridicasBase}/${nota.idNotaJuridica}/pdf" title="Ver PDF">
+                            <i class="fas fa-file-pdf"></i>
+                        </a>
+                        ${nota.google_doc_link ? `<a class="btn btn-warning" target="_blank" href="${nota.google_doc_link}" title="Abrir en Google Docs"><i class="fab fa-google-drive"></i></a>` : ''}
+                        ${nota.google_drive_link ? `<a class="btn btn-info" target="_blank" href="${nota.google_drive_link}" title="Ver en Drive"><i class="fas fa-cloud"></i></a>` : ''}
+                        ${nota.observacion ? `<button class="btn btn-secondary btn-ver-obs" data-nota="${numeroCompleto}" data-obs="${nota.observacion.replace(/"/g, '&quot;')}" title="Ver observación"><i class="fas fa-info-circle"></i></button>` : ''}
+                        <button class="btn btn-danger btn-eliminar" data-id="${nota.idNotaJuridica}" title="Eliminar">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </td>
+            `;
+
+            tbody.appendChild(tr);
+        });
+
+        setupActionButtons();
+    }
+
+    function setupActionButtons() {
+        // Editar
+        document.querySelectorAll('.btn-editar').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                editarNota(this.dataset.id);
+            });
+        });
+
+        // Eliminar
+        document.querySelectorAll('.btn-eliminar').forEach(function(btn) {
+            btn.addEventListener('click', async function() {
+                if (confirm('¿Está seguro de eliminar esta nota jurídica?')) {
+                    await eliminarNota(this.dataset.id);
+                }
+            });
+        });
+
+        // Ver observación
+        document.querySelectorAll('.btn-ver-obs').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                mostrarModalObservacion(this.dataset.nota, this.dataset.obs);
+            });
+        });
+    }
+
+    function renderPaginacion(data) {
+        const infoPaginacion = document.getElementById('info-paginacion');
+        const controlesPaginacion = document.getElementById('paginacion-controles');
+
+        if (!data || !infoPaginacion || !controlesPaginacion) return;
+
+        const { current_page, last_page, from, to, total } = data;
+
+        if (total > 0) {
+            infoPaginacion.textContent = `Mostrando ${from} a ${to} de ${total} resultados`;
+        } else {
+            infoPaginacion.textContent = 'No se encontraron resultados';
+        }
+
+        controlesPaginacion.innerHTML = '';
+        if (last_page <= 1) return;
+
+        // Anterior
+        const prevLi = document.createElement('li');
+        prevLi.className = `page-item ${current_page === 1 ? 'disabled' : ''}`;
+        prevLi.innerHTML = `<a class="page-link" href="#" data-page="${current_page - 1}">Anterior</a>`;
+        controlesPaginacion.appendChild(prevLi);
+
+        // Números
+        const startPage = Math.max(1, current_page - 2);
+        const endPage = Math.min(last_page, current_page + 2);
+
+        for (let i = startPage; i <= endPage; i++) {
+            const pageLi = document.createElement('li');
+            pageLi.className = `page-item ${i === current_page ? 'active' : ''}`;
+            pageLi.innerHTML = `<a class="page-link" href="#" data-page="${i}">${i}</a>`;
+            controlesPaginacion.appendChild(pageLi);
+        }
+
+        // Siguiente
+        const nextLi = document.createElement('li');
+        nextLi.className = `page-item ${current_page === last_page ? 'disabled' : ''}`;
+        nextLi.innerHTML = `<a class="page-link" href="#" data-page="${current_page + 1}">Siguiente</a>`;
+        controlesPaginacion.appendChild(nextLi);
+
+        // Event listeners
+        controlesPaginacion.querySelectorAll('a.page-link').forEach(function(link) {
+            link.addEventListener('click', function(e) {
+                e.preventDefault();
+                const page = parseInt(this.dataset.page);
+                if (page >= 1 && page <= last_page && page !== current_page) {
+                    cargarNotas(page);
+                }
+            });
+        });
+    }
+
+    async function cargarPlantillas() {
+        try {
+            const resp = await fetch(routes.notasJuridicasPlantillas, {
+                headers: { 'Accept': 'application/json' }
+            });
+            const data = await resp.json();
+
+            const listaPlantillas = document.getElementById('lista_plantillas');
+            if (!listaPlantillas) return;
+
+            if (data.success && data.data && data.data.length > 0) {
+                listaPlantillas.innerHTML = data.data.map(p => {
+                    const nombre = p.nombre || p.nombre_plantilla || 'Sin nombre';
+                    const id = p.idPlantilla || p.idNotaJuridica;
+                    return `
+                        <li>
+                            <a class="dropdown-item plantilla-item" href="#" data-id="${id}">
+                                <i class="fas fa-file-alt"></i> ${nombre}
+                            </a>
+                        </li>
+                    `;
+                }).join('');
+
+                listaPlantillas.querySelectorAll('.plantilla-item').forEach(item => {
+                    item.addEventListener('click', async function(e) {
+                        e.preventDefault();
+                        await usarPlantilla(this.dataset.id);
+                    });
+                });
+            } else {
+                listaPlantillas.innerHTML = '<li><a class="dropdown-item disabled" href="#">Sin plantillas guardadas</a></li>';
+            }
+        } catch (e) {
+            console.error('Error cargando plantillas:', e);
+        }
+    }
+
+    async function usarPlantilla(id) {
+        try {
+            const resp = await fetch(`${routes.notasJuridicasBase}/plantillas/${id}`, {
+                headers: { 'Accept': 'application/json' }
+            });
+            const json = await resp.json();
+
+            if (!json.success) {
+                alert('Error al cargar la plantilla');
+                return;
+            }
+
+            // Mostrar formulario primero
+            mostrarFormulario();
+
+            // Cargar configuración
+            if (json.configuracion) {
+                configuracionActual = json.configuracion;
+                if (descripcionEl) descripcionEl.value = json.configuracion.contenido || '';
+                if (configuracionEl) configuracionEl.value = JSON.stringify(json.configuracion);
+                actualizarVistaContenido(json.configuracion);
+            } else if (json.data) {
+                const config = {
+                    encabezado: {
+                        logo_path: json.data.logo_path || null,
+                        leyenda: json.data.leyenda_encabezado || null
+                    },
+                    contenido: json.data.descripcion || '',
+                    margenes: { superior: 2, inferior: 2, izquierdo: 2.5, derecho: 2.5 },
+                    pagina: { tamano: 'legal', orientacion: 'portrait' }
+                };
+                configuracionActual = config;
+                if (descripcionEl) descripcionEl.value = config.contenido;
+                if (configuracionEl) configuracionEl.value = JSON.stringify(config);
+                actualizarVistaContenido(config);
+
+                if (tituloEl) tituloEl.value = json.data.titulo || '';
+            }
+
+            mostrarMensaje('Plantilla cargada correctamente', 'success');
+
+        } catch (e) {
+            console.error('Error usando plantilla:', e);
+            alert('Error al cargar la plantilla');
+        }
+    }
+
+    async function editarNota(id) {
+        try {
+            const resp = await fetch(`${routes.notasJuridicasBase}/${id}`, {
+                headers: { 'Accept': 'application/json' }
+            });
+            const json = await resp.json();
+
+            if (!json.success) {
+                alert('Error al cargar la nota');
+                return;
+            }
+
+            // Mostrar formulario
+            if (cardHeaderFiltros) cardHeaderFiltros.style.display = 'none';
+            panelList.classList.add('d-none');
+            panelForm.classList.remove('d-none');
+
+            // Reinicializar Select2
+            setTimeout(() => {
+                if (typeof $.fn.select2 !== 'undefined') {
+                    $(personalIdEl).select2('destroy');
+                    $(notaReferenciaEl).select2('destroy');
+                    initSelect2();
+                }
+            }, 100);
+
+            notaEditandoId = id;
+            const nota = json.data;
+
+            // Cargar datos
+            if (notaIdEl) notaIdEl.value = nota.idNotaJuridica;
+            if (numeroEl) numeroEl.value = nota.numero;
+            if (anioEl) anioEl.value = nota.anio;
+            if (fechaCreacionEl) fechaCreacionEl.value = nota.fecha_creacion;
+            if (tituloEl) tituloEl.value = nota.titulo || '';
+            if (observacionEl) observacionEl.value = nota.observacion || '';
+            if (estadoFormEl) estadoFormEl.value = nota.estado;
+
+            // Tipo de nota y mostrar contenedor correspondiente
+            if (nota.tipo === 'adjunta') {
+                if (tipoAdjuntaEl) tipoAdjuntaEl.checked = true;
+                mostrarContenedorAdjunta();
+
+                // Cargar archivo si existe
+                if (nota.archivo_path) {
+                    if (archivoNombreEl) archivoNombreEl.textContent = nota.archivo_path.split('/').pop();
+                    if (archivoPreviewContainer) archivoPreviewContainer.classList.remove('d-none');
+
+                    // Si es imagen, mostrar preview
+                    const extension = nota.archivo_path.split('.').pop().toLowerCase();
+                    if (['jpg', 'jpeg', 'png', 'gif'].includes(extension)) {
+                        if (archivoIcon) archivoIcon.className = 'fas fa-file-image fa-2x text-success';
+                        if (imagenPreview && imgPreviewEl) {
+                            imagenPreview.classList.remove('d-none');
+                            imgPreviewEl.src = '/' + nota.archivo_path;
+                        }
+                    } else {
+                        if (archivoIcon) archivoIcon.className = 'fas fa-file-pdf fa-2x text-danger';
+                        if (imagenPreview) imagenPreview.classList.add('d-none');
+                    }
+                }
+            } else {
+                if (tipoCreadaEl) tipoCreadaEl.checked = true;
+                mostrarContenedorCreada();
+            }
+
+            // Cargar personal
+            if (nota.personal_id && typeof $.fn.select2 !== 'undefined') {
+                setTimeout(() => {
+                    const opcion = new Option(
+                        nota.personal ? `${nota.personal.Apellido}, ${nota.personal.Nombre}` : nota.personal_id,
+                        nota.personal_id,
+                        true,
+                        true
+                    );
+                    $(personalIdEl).append(opcion).trigger('change');
+                }, 200);
+            }
+
+            // Cargar referencia
+            if (nota.nota_referencia_id && typeof $.fn.select2 !== 'undefined') {
+                setTimeout(() => {
+                    const opcion = new Option(
+                        `Nota ${nota.nota_referencia?.numero_completo || ''} - ${nota.nota_referencia?.titulo || ''}`,
+                        nota.nota_referencia_id,
+                        true,
+                        true
+                    );
+                    $(notaReferenciaEl).append(opcion).trigger('change');
+                }, 200);
+            }
+
+            // Cargar configuración
+            if (json.configuracion) {
+                configuracionActual = json.configuracion;
+                if (descripcionEl) descripcionEl.value = json.configuracion.contenido || '';
+                if (configuracionEl) configuracionEl.value = JSON.stringify(json.configuracion);
+                actualizarVistaContenido(json.configuracion);
+            } else {
+                const config = {
+                    encabezado: {
+                        logo_path: nota.logo_path || null,
+                        leyenda: nota.leyenda_encabezado || null
+                    },
+                    contenido: nota.descripcion || '',
+                    margenes: { superior: 2, inferior: 2, izquierdo: 2.5, derecho: 2.5 },
+                    pagina: { tamano: 'legal', orientacion: 'portrait' }
+                };
+                configuracionActual = config;
+                if (descripcionEl) descripcionEl.value = config.contenido;
+                if (configuracionEl) configuracionEl.value = JSON.stringify(config);
+                actualizarVistaContenido(config);
+            }
+
+            // Cambiar título y botón
+            if (tituloFormulario) {
+                tituloFormulario.innerHTML = '<i class="fas fa-edit"></i> Editar Nota Jurídica';
+            }
+            const btnSubmit = form?.querySelector('button[type="submit"]');
+            if (btnSubmit) {
+                btnSubmit.innerHTML = '<i class="fas fa-save"></i> Actualizar';
+            }
+
+            // Cargar historial de novedades
+            cargarHistorial(id);
+
+        } catch (e) {
+            console.error('Error cargando nota:', e);
+            alert('Error al cargar la nota');
+        }
+    }
+
+    async function guardarNota() {
+        // Obtener tipo seleccionado
+        const tipo = tipoAdjuntaEl?.checked ? 'adjunta' : 'creada';
+
+        const payload = {
+            titulo: tituloEl?.value || '',
+            descripcion: descripcionEl?.value || '',
+            configuracion: configuracionEl?.value ? JSON.parse(configuracionEl.value) : null,
+            observacion: observacionEl?.value || '',
+            fecha_creacion: fechaCreacionEl?.value || '',
+            personal_id: personalIdEl?.value || null,
+            nota_referencia_id: notaReferenciaEl?.value || null,
+            tipo: tipo,
+            estado: estadoFormEl?.value || 'borrador',
+            es_plantilla: esPlantillaEl?.checked || false,
+            nombre_plantilla: nombrePlantillaEl?.value || null
+        };
+
+        // Si es nota adjunta, agregar datos del archivo
+        if (tipo === 'adjunta') {
+            payload.archivo_base64 = archivoBase64El?.value || null;
+            payload.archivo_nombre = archivoNombreRealEl?.value || null;
+        }
+
+        // Si ya se creó un documento de Drive, incluir sus datos
+        if (googleDocIdEl?.value) {
+            payload.google_doc_id = googleDocIdEl.value;
+            payload.google_doc_link = googleDocLinkEl?.value || null;
+            payload.tipo = 'creada'; // Si tiene documento de Drive, es tipo creada
+        }
+
+        // Datos de Google Docs
+        const crearGoogleDocEl = document.getElementById('crear_google_doc');
+        const googleDocTemplateEl = document.getElementById('google_doc_template_id');
+        
+        if (crearGoogleDocEl?.checked) {
+            payload.crear_google_doc = true;
+            payload.google_doc_template_id = googleDocTemplateEl?.value || null;
+        }
+
+        // Validación
+        if (!payload.titulo) {
+            alert('El título es obligatorio');
+            tituloEl?.focus();
+            return;
+        }
+
+        // Validación según tipo
+        if (tipo === 'creada') {
+            if (!payload.descripcion) {
+                alert('Debe generar el contenido de la nota con el editor');
+                return;
+            }
+        } else if (tipo === 'adjunta') {
+            if (!payload.archivo_base64) {
+                alert('Debe adjuntar un archivo (PDF o imagen)');
+                return;
+            }
+        }
+
+        const url = notaEditandoId
+            ? `${routes.notasJuridicasBase}/${notaEditandoId}`
+            : routes.notasJuridicasBase;
+        const method = notaEditandoId ? 'PUT' : 'POST';
+
+        try {
+            const resp = await fetch(url, {
+                method: method,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': csrfToken
+                },
+                body: JSON.stringify(payload)
+            });
+
+            const json = await resp.json();
+
+            if (json.success) {
+                mostrarMensaje(notaEditandoId ? 'Nota actualizada' : 'Nota guardada exitosamente', 'success');
+                
+                // Si se creó un Google Doc, mostrar enlace
+                if (json.data?.google_doc_link) {
+                    const abrir = confirm('Documento creado en Google Drive.\n\n¿Desea abrirlo ahora?');
+                    if (abrir) {
+                        window.open(json.data.google_doc_link, '_blank');
+                    }
+                }
+                
+                mostrarLista();
+                cargarPlantillas();
+            } else {
+                alert(json.message || 'Error al guardar la nota');
+            }
+        } catch (e) {
+            console.error('Error guardando nota:', e);
+            alert('Error al guardar la nota');
+        }
+    }
+
+    async function guardarPlantillaDesdeModal(nombre, config) {
+        try {
+            const resp = await fetch('/plantillas-documentos', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': csrfToken
+                },
+                body: JSON.stringify({
+                    nombre: nombre,
+                    modulo_id: moduloId,
+                    configuracion: config
+                })
+            });
+
+            const data = await resp.json();
+
+            if (data.success) {
+                mostrarMensaje('Plantilla guardada exitosamente', 'success');
+                cargarPlantillas();
+            } else {
+                alert(data.message || 'Error al guardar la plantilla');
+            }
+        } catch (e) {
+            console.error('Error guardando plantilla:', e);
+            alert('Error al guardar la plantilla');
+        }
+    }
+
+    async function eliminarNota(id) {
+        try {
+            const resp = await fetch(`${routes.notasJuridicasBase}/${id}`, {
+                method: 'DELETE',
+                headers: {
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': csrfToken
+                }
+            });
+
+            const json = await resp.json();
+
+            if (json.success) {
+                cargarNotas(currentPage);
+                mostrarMensaje('Nota eliminada', 'success');
+            } else {
+                alert(json.message || 'Error al eliminar la nota');
+            }
+        } catch (e) {
+            console.error('Error eliminando nota:', e);
+            alert('Error al eliminar la nota');
+        }
+    }
+
+    // ============================================
+    // AUXILIARES
+    // ============================================
+    function limpiarFiltros() {
+        if (inputAnio) inputAnio.value = new Date().getFullYear();
+        if (inputFechaDesde) inputFechaDesde.value = '';
+        if (inputFechaHasta) inputFechaHasta.value = '';
+        if (inputPersonal) inputPersonal.value = '';
+        if (inputNumero) inputNumero.value = '';
+        if (inputBusqueda) inputBusqueda.value = '';
+        if (inputEstado) inputEstado.value = '';
+
+        cargarNotas(1);
+    }
+
+    function mostrarModalObservacion(numeroNota, observacion) {
+        document.getElementById('modalNotaNumero').textContent = numeroNota || 'N/A';
+        document.getElementById('modalObservacionTexto').textContent = observacion || 'Sin observación';
+
+        const modal = document.getElementById('modalObservacion');
+        if (window.bootstrap) {
+            new bootstrap.Modal(modal).show();
+        } else if (window.jQuery) {
+            jQuery(modal).modal('show');
+        }
+    }
+
+    function mostrarMensaje(mensaje, tipo = 'info') {
+        const toast = document.createElement('div');
+        toast.className = `alert alert-${tipo === 'success' ? 'success' : 'danger'} position-fixed`;
+        toast.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 250px;';
+        toast.innerHTML = `
+            <i class="fas fa-${tipo === 'success' ? 'check-circle' : 'exclamation-circle'}"></i>
+            ${mensaje}
+            <button type="button" class="btn-close float-end" onclick="this.parentElement.remove()"></button>
+        `;
+        document.body.appendChild(toast);
+
+        setTimeout(() => toast.remove(), 3000);
+    }
+
+    function formatearFecha(fecha) {
+        if (!fecha) return '';
+        const date = new Date(fecha);
+        return date.toLocaleDateString('es-AR');
+    }
+
+    function capitalizeFirst(str) {
+        if (!str) return '';
+        return str.charAt(0).toUpperCase() + str.slice(1);
+    }
+
+    // ============================================
+    // FUNCIONES PARA TIPO DE NOTA
+    // ============================================
+    function mostrarContenedorCreada() {
+        if (contenedorNotaCreada) contenedorNotaCreada.classList.remove('d-none');
+        if (contenedorNotaAdjunta) contenedorNotaAdjunta.classList.add('d-none');
+        // Mostrar sección de plantilla solo para notas creadas
+        if (contenedorPlantilla) contenedorPlantilla.classList.remove('d-none');
+        // Ocultar preview de archivo
+        if (contenedorPreviewArchivo) contenedorPreviewArchivo.classList.add('d-none');
+    }
+
+    function mostrarContenedorAdjunta() {
+        if (contenedorNotaCreada) contenedorNotaCreada.classList.add('d-none');
+        if (contenedorNotaAdjunta) contenedorNotaAdjunta.classList.remove('d-none');
+        // Ocultar sección de plantilla para notas adjuntas
+        if (contenedorPlantilla) contenedorPlantilla.classList.add('d-none');
+        // Mostrar preview de archivo
+        if (contenedorPreviewArchivo) contenedorPreviewArchivo.classList.remove('d-none');
+        // Resetear checkbox de plantilla
+        if (esPlantillaEl) esPlantillaEl.checked = false;
+        if (contenedorNombrePlantilla) contenedorNombrePlantilla.classList.add('d-none');
+        if (nombrePlantillaEl) nombrePlantillaEl.value = '';
+    }
+
+    function manejarSeleccionArchivo(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        // Validar tamaño (máx 10MB)
+        if (file.size > 10 * 1024 * 1024) {
+            alert('El archivo es demasiado grande. Máximo permitido: 10MB');
+            e.target.value = '';
+            return;
+        }
+
+        // Validar tipo
+        const tiposPermitidos = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png', 'image/gif'];
+        if (!tiposPermitidos.includes(file.type)) {
+            alert('Tipo de archivo no permitido. Use PDF o imágenes (JPG, PNG, GIF)');
+            e.target.value = '';
+            return;
+        }
+
+        // Leer archivo como base64
+        const reader = new FileReader();
+        reader.onload = function(event) {
+            const base64 = event.target.result;
+
+            // Guardar datos
+            if (archivoBase64El) archivoBase64El.value = base64;
+            if (archivoNombreRealEl) archivoNombreRealEl.value = file.name;
+            if (archivoTipoEl) archivoTipoEl.value = file.type;
+
+            // Mostrar preview
+            if (archivoPreviewContainer) archivoPreviewContainer.classList.remove('d-none');
+            if (archivoNombreEl) archivoNombreEl.textContent = file.name;
+
+            // Mostrar según tipo
+            if (file.type === 'application/pdf') {
+                // Es PDF
+                if (archivoIcon) {
+                    archivoIcon.className = 'fas fa-file-pdf fa-2x text-danger';
+                }
+                if (imagenPreview) imagenPreview.classList.add('d-none');
+                if (pdfPreview) {
+                    pdfPreview.classList.remove('d-none');
+                    pdfPreview.innerHTML = `<embed src="${base64}" type="application/pdf" width="100%" height="300px"></embed>`;
+                }
+            } else {
+                // Es imagen, mostrar preview
+                if (archivoIcon) {
+                    archivoIcon.className = 'fas fa-file-image fa-2x text-success';
+                }
+                if (pdfPreview) pdfPreview.classList.add('d-none');
+                if (imagenPreview && imgPreviewEl) {
+                    imagenPreview.classList.remove('d-none');
+                    imgPreviewEl.src = base64;
+                }
+            }
+        };
+        reader.readAsDataURL(file);
+    }
+
+    function eliminarArchivoSeleccionado() {
+        if (archivoNotaEl) archivoNotaEl.value = '';
+        if (archivoBase64El) archivoBase64El.value = '';
+        if (archivoNombreRealEl) archivoNombreRealEl.value = '';
+        if (archivoTipoEl) archivoTipoEl.value = '';
+        if (archivoPreviewContainer) archivoPreviewContainer.classList.add('d-none');
+        if (archivoSinPreview) archivoSinPreview.classList.remove('d-none');
+        if (imagenPreview) imagenPreview.classList.add('d-none');
+        if (pdfPreview) pdfPreview.classList.add('d-none');
+    }
+
+    // ============================================
+    // FUNCIONES PARA HISTORIAL/NOVEDADES
+    // ============================================
+
+    // Elementos del historial
+    const seccionHistorial = document.getElementById('seccion_historial');
+    const historialLista = document.getElementById('historial_lista');
+    const btnAgregarNovedad = document.getElementById('btn_agregar_novedad');
+    const modalAgregarNovedad = document.getElementById('modalAgregarNovedad');
+    const formNovedad = document.getElementById('form_novedad');
+    const novedadDescripcion = document.getElementById('novedad_descripcion');
+    let modalNovedadInstance = null;
+
+    async function cargarHistorial(notaId) {
+        if (!notaId) {
+            if (seccionHistorial) seccionHistorial.style.display = 'none';
+            return;
+        }
+
+        try {
+            const resp = await fetch(`${routes.notasJuridicasBase}/${notaId}/historial`, {
+                headers: { 'Accept': 'application/json' }
+            });
+            const json = await resp.json();
+
+            if (json.success) {
+                if (seccionHistorial) seccionHistorial.style.display = 'flex';
+                renderHistorial(json.data || []);
+            } else {
+                if (seccionHistorial) seccionHistorial.style.display = 'none';
+            }
+        } catch (e) {
+            console.error('Error al cargar historial:', e);
+            if (seccionHistorial) seccionHistorial.style.display = 'none';
+        }
+    }
+
+    function renderHistorial(items) {
+        if (!historialLista) return;
+
+        if (!items || items.length === 0) {
+            historialLista.innerHTML = '<p class="text-muted text-center">No hay novedades registradas</p>';
+            return;
+        }
+
+        historialLista.innerHTML = items.map(item => {
+            const fecha = new Date(item.created_at).toLocaleString('es-AR');
+            const usuario = item.usuario ? `${item.usuario.Apellido}, ${item.usuario.Nombre}` : 'Sistema';
+            const descripcion = item.descripcion || '';
+
+            return `
+                <div class="border-bottom pb-3 mb-3">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <div>
+                            <span class="badge bg-info text-white me-2">
+                                <i class="fas fa-clock"></i> ${fecha}
+                            </span>
+                            <span class="badge bg-secondary">
+                                <i class="fas fa-user"></i> ${usuario}
+                            </span>
+                        </div>
+                    </div>
+                    <div class="ps-3 border-start">
+                        <p class="mb-0">${descripcion}</p>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    function abrirModalNovedad() {
+        if (novedadDescripcion) novedadDescripcion.value = '';
+
+        if (modalAgregarNovedad) {
+            if (window.bootstrap && modalAgregarNovedad) {
+                modalNovedadInstance = new bootstrap.Modal(modalAgregarNovedad);
+                modalNovedadInstance.show();
+            } else if (window.jQuery) {
+                jQuery(modalAgregarNovedad).modal('show');
+            }
+        }
+    }
+
+    async function guardarNovedad(e) {
+        e.preventDefault();
+
+        if (!notaEditandoId) {
+            alert('No hay una nota seleccionada para agregar la novedad');
+            return;
+        }
+
+        const descripcion = novedadDescripcion?.value?.trim();
+        if (!descripcion) {
+            alert('La descripción de la novedad es obligatoria');
+            return;
+        }
+
+        try {
+            const resp = await fetch(`${routes.notasJuridicasBase}/${notaEditandoId}/novedad`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': csrfToken
+                },
+                body: JSON.stringify({ descripcion: descripcion })
+            });
+
+            const json = await resp.json();
+
+            if (json.success) {
+                mostrarMensaje('Novedad agregada exitosamente', 'success');
+                cargarHistorial(notaEditandoId);
+
+                // Cerrar modal
+                if (modalNovedadInstance) {
+                    modalNovedadInstance.hide();
+                } else if (window.jQuery) {
+                    jQuery(modalAgregarNovedad).modal('hide');
+                }
+            } else {
+                alert(json.message || 'Error al guardar la novedad');
+            }
+        } catch (e) {
+            console.error('Error guardando novedad:', e);
+            alert('Error al guardar la novedad');
+        }
+    }
+
+    // Event listeners para historial
+    if (btnAgregarNovedad) {
+        btnAgregarNovedad.addEventListener('click', abrirModalNovedad);
+    }
+
+    if (formNovedad) {
+        formNovedad.addEventListener('submit', guardarNovedad);
+    }
+
+    // ============================================
+    // FUNCIÓN PARA CREAR DOCUMENTO EN GOOGLE DRIVE
+    // ============================================
+    async function crearDocumentoDrive() {
+        const titulo = tituloEl?.value || 'Nueva Nota Jurídica';
+        const templateId = document.getElementById('google_doc_template_id')?.value || null;
+        const numero = numeroEl?.value || null;
+        const anio = anioEl?.value || new Date().getFullYear();
+
+        // Mostrar indicador de carga
+        const btn = document.getElementById('btn_abrir_doc_drive');
+        const textoOriginal = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Buscando documento...';
+
+        // Abrir ventana en blanco INMEDIATAMENTE (para evitar bloqueo del navegador)
+        const nuevaVentana = window.open('', '_blank');
+        if (nuevaVentana) {
+            nuevaVentana.document.write('<html><head><title>Buscando documento...</title></head><body style="display:flex;justify-content:center;align-items:center;height:100vh;font-family:Arial;"><p>Verificando documento en Google Drive...</p></body></html>');
+        }
+
+        try {
+            const response = await fetch(routes.notasJuridicasCrearDocDrive, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': csrfToken
+                },
+                body: JSON.stringify({
+                    titulo: titulo,
+                    template_id: templateId,
+                    numero: numero,
+                    anio: anio
+                })
+            });
+
+            const data = await response.json();
+
+            if (data.success && data.data) {
+                // Guardar los datos del documento en los campos ocultos
+                if (googleDocIdEl) googleDocIdEl.value = data.data.google_doc_id;
+                if (googleDocLinkEl) googleDocLinkEl.value = data.data.google_doc_link;
+
+                // Actualizar el checkbox para indicar que ya se creó
+                const crearGoogleDocEl = document.getElementById('crear_google_doc');
+                if (crearGoogleDocEl) crearGoogleDocEl.checked = true;
+
+                // Mostrar mensaje según si existe o es nuevo
+                if (data.existe) {
+                    mostrarMensaje('Documento existente encontrado', 'info');
+                } else {
+                    mostrarMensaje('Documento creado exitosamente', 'success');
+                }
+
+                // Redirigir la ventana abierta al documento de Google
+                if (nuevaVentana) {
+                    nuevaVentana.location.href = data.data.google_doc_link;
+                } else {
+                    // Si la ventana fue bloqueada, mostrar enlace manual
+                    alert('El documento fue ' + (data.existe ? 'encontrado' : 'creado') + '. Haga click en OK para abrirlo.');
+                    window.open(data.data.google_doc_link, '_blank');
+                }
+            } else {
+                if (nuevaVentana) nuevaVentana.close();
+                alert(data.message || 'Error al crear el documento en Google Drive');
+            }
+        } catch (error) {
+            console.error('Error al crear documento:', error);
+            if (nuevaVentana) nuevaVentana.close();
+            alert('Error al comunicarse con el servidor');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = textoOriginal;
+        }
+    }
+
+    // Iniciar
+    init();
+});

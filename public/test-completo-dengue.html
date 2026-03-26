@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Completo Dengue</title>
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .test-section { margin: 20px 0; padding: 20px; border: 1px solid #ddd; border-radius: 5px; }
+        .success { background-color: #d4edda; border-color: #c3e6cb; }
+        .error { background-color: #f8d7da; border-color: #f5c6cb; }
+        button {
+            padding: 10px 20px; margin: 10px; background: #007bff; color: white;
+            border: none; border-radius: 3px; cursor: pointer;
+        }
+        button:hover { background: #0056b3; }
+        .result { margin-top: 10px; padding: 10px; background: #f8f9fa; border-left: 3px solid #007bff; }
+    </style>
+</head>
+<body>
+    <h1>Test Completo - Formulario Registros Dengue</h1>
+
+    <div class="test-section">
+        <h2>✅ 1. Test de Acceso</h2>
+        <button onclick="testAcceso()">Probar Acceso a Página Principal</button>
+        <div id="result-access" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>✅ 2. Test de Agregar Registro</h2>
+        <button onclick="testAgregar()">Probar Agregar Nuevo Registro</button>
+        <div id="result-add" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>✅ 3. Test de Búsqueda DNI</h2>
+        <button onclick="testBuscarDNI()">Probar Buscar DNI</button>
+        <div id="result-search" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>✅ 4. Test de Obtener Registro</h2>
+        <button onclick="testObtener()">Probar Obtener Registro ID=1</button>
+        <div id="result-get" class="result"></div>
+    </div>
+
+    <script>
+        const baseUrl = 'http://127.0.0.1:8000';
+
+        function showResult(selector, title, data, isError = false) {
+            const div = $(selector);
+            div.removeClass('success error');
+            div.addClass(isError ? 'error' : 'success');
+
+            const content = `
+                <h4>${title}</h4>
+                <pre>${typeof data === 'object' ? JSON.stringify(data, null, 2) : data}</pre>
+            `;
+            div.html(content);
+        }
+
+        function testAcceso() {
+            $.get(baseUrl + '/test-dengue')
+                .done(function(data) {
+                    showResult('#result-access', '✅ Éxito - Página Accesible', 'La página principal se carga correctamente');
+                })
+                .fail(function(xhr) {
+                    showResult('#result-access', '❌ Error de Acceso', {
+                        status: xhr.status,
+                        error: xhr.statusText,
+                        message: xhr.responseText.substring(0, 200) + '...'
+                    }, true);
+                });
+        }
+
+        function testAgregar() {
+            const datosCompletos = {
+                // Datos básicos
+                dni: '12345678',
+                nombre: 'PACIENTE PRUEBA TEST',
+                celular: '3794123456',
+                sexo: '0',
+                fecha_nac: '01/01/1990',
+                domicilio: 'Calle Falsa 123',
+                dto: 'Capital',
+                localidad: 'Corrientes',
+                barrio: 'Centro',
+
+                // Datos epidemiológicos
+                semana: '48',
+                f_fis: '25/11/2024',
+                f_consulta: '27/11/2024',
+                f_muestra: '27/11/2024',
+
+                // Efector (usar 1 por defecto)
+                efector_sel: '1',
+                region_id: '1',
+
+                // Tests
+                laboratorio: 'Lab Central',
+                testAgNS1: '1',
+                tipoNs1: 'ELISA',
+                testIgM: '0',
+                testIGG: '',
+                testPCR: '',
+
+                // Otros datos
+                internacion: '0',
+                ant_vacu: '0',
+                obito: '0',
+                comor: 'Ninguna',
+                obs: 'Paciente de prueba para testing',
+                ant_viaje: 'No',
+
+                // Coordenadas (simuladas)
+                latitud: '-27.46784',
+                longitud: '-58.8344',
+                latitud_viaje: null,
+                longitud_viaje: null,
+
+                _token: $('meta[name="csrf-token"]').attr('content')
+            };
+
+            $.ajax({
+                url: baseUrl + '/test-dengue-store',
+                method: 'POST',
+                data: datosCompletos,
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            })
+            .done(function(response) {
+                showResult('#result-add', '✅ Éxito - Registro Creado', response);
+            })
+            .fail(function(xhr) {
+                showResult('#result-add', '❌ Error al Crear', {
+                    status: xhr.status,
+                    error: xhr.statusText,
+                    response: xhr.responseText
+                }, true);
+            });
+        }
+
+        function testBuscarDNI() {
+            $.ajax({
+                url: baseUrl + '/registros-dengue/buscar-dni',
+                method: 'GET',
+                data: { dni: '12345678' },
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            })
+            .done(function(response) {
+                showResult('#result-search', '✅ Éxito - Búsqueda DNI', response);
+            })
+            .fail(function(xhr) {
+                showResult('#result-search', '❌ Error en Búsqueda', {
+                    status: xhr.status,
+                    error: xhr.statusText,
+                    response: xhr.responseText
+                }, true);
+            });
+        }
+
+        function testObtener() {
+            $.ajax({
+                url: baseUrl + '/registros-dengue/1',
+                method: 'GET',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            })
+            .done(function(response) {
+                showResult('#result-get', '✅ Éxito - Registro Obtenido', response);
+            })
+            .fail(function(xhr) {
+                showResult('#result-get', '❌ Error al Obtener', {
+                    status: xhr.status,
+                    error: xhr.statusText,
+                    response: xhr.responseText
+                }, true);
+            });
+        }
+
+        // Auto-ejecutar test de acceso al cargar
+        $(document).ready(function() {
+            setTimeout(testAcceso, 500);
+        });
+    </script>
+</body>
+</html>

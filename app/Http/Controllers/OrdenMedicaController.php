@@ -9,6 +9,7 @@ use App\Models\Disposicion;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use PDF;
 use Carbon\Carbon;
 
 class OrdenMedicaController extends Controller
@@ -263,7 +264,7 @@ class OrdenMedicaController extends Controller
     {
         try {
             $validated = $request->validate([
-                'personal_id' => 'required|exists:personal,Legajo',
+                'personal_id' => 'required|exists:empleados,Legajo',
                 'numero' => 'required|integer',
                 'fecha' => 'required|date',
                 'anio' => 'required|integer',
@@ -340,7 +341,7 @@ class OrdenMedicaController extends Controller
                 'NumDisp' => $validated['disposicion_id'] ?? null,
                 'ObservacionLic' => $validated['observacion'] ?? null,
                 'CertMedico' => $validated['certificado'] ?? 0,
-                'MotPoster' => $validated['poster'] ?? null,
+                'MotPoster' => $validated['poster'] ? (int)$validated['poster'] : 0,
                 'NumDispPoster' => $validated['disp2'] ?? null,
                 'imagen_ficha' => $imagenPath,
                 'Creador_Id' => auth()->id() ?? 1,
@@ -390,7 +391,7 @@ class OrdenMedicaController extends Controller
     {
         try {
             $validated = $request->validate([
-                'personal_id' => 'required|exists:personal,Legajo',
+                'personal_id' => 'required|exists:empleados,Legajo',
                 'numero' => 'required|integer',
                 'fecha' => 'required|date',
                 'anio' => 'required|integer',
@@ -478,7 +479,7 @@ class OrdenMedicaController extends Controller
                 'NumDisp' => $validated['disposicion_id'] ?? null,
                 'ObservacionLic' => $validated['observacion'] ?? null,
                 'CertMedico' => $validated['certificado'] ?? 0,
-                'MotPoster' => $validated['poster'] ?? null,
+                'MotPoster' => $validated['poster'] ? (int)$validated['poster'] : 0,
                 'NumDispPoster' => $validated['disp2'] ?? null,
                 'imagen_ficha' => $imagenPath,
             ]);
@@ -531,22 +532,17 @@ class OrdenMedicaController extends Controller
     public function imprimir(Licencia $licencia)
     {
         try {
-            // Verificar si DomPDF está disponible
-            if (!class_exists('Barryvdh\DomPDF\Facade\Pdf') && !class_exists('Barryvdh\DomPDF\PDF')) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'El generador de PDF no está disponible. Contacte al administrador para instalar la librería DomPDF.'
-                ], 500);
-            }
-            
             // Cargar las relaciones necesarias
-            $licencia->load(['personal', 'motivo', 'disposicion']);
+            $licencia->load(['personal', 'personal.servicio', 'personal.categoriaObj', 'motivo', 'disposicion']);
 
             // Obtener la leyenda anual
             $leyenda = \App\Models\LeyendaAnual::getPorAnio(date('Y'));
 
+            // Obtener la ruta del logo configurado
+            $logoPath = \App\Http\Controllers\ConfiguracionController::getLogoPath();
+
             // Generar PDF con DomPDF
-            $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('prints.orden-medica', compact('licencia', 'leyenda'));
+            $pdf = \PDF::loadView('prints.orden-medica', compact('licencia', 'leyenda', 'logoPath'));
             $pdf->setPaper('legal', 'portrait');
 
             $nombreArchivo = 'Orden_Medica_' . $licencia->personal->Legajo . '_' . date('Y') . '.pdf';
@@ -559,6 +555,44 @@ class OrdenMedicaController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error al imprimir la orden médica: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Eliminar imagen de una orden médica
+     */
+    public function eliminarImagen(Licencia $licencia)
+    {
+        try {
+            // Verificar si hay imagen para eliminar
+            if ($licencia->imagen_ficha) {
+                // Eliminar archivo físico si existe
+                $rutaCompleta = public_path($licencia->imagen_ficha);
+                if (file_exists($rutaCompleta)) {
+                    unlink($rutaCompleta);
+                }
+
+                // Limpiar campo en la base de datos
+                $licencia->update(['imagen_ficha' => null]);
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Imagen eliminada exitosamente'
+                ]);
+            }
+
+            return response()->json([
+                'success' => false,
+                'message' => 'No hay imagen para eliminar'
+            ], 404);
+
+        } catch (\Exception $e) {
+            Log::error('Error al eliminar imagen de orden médica: ' . $e->getMessage());
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al eliminar la imagen: ' . $e->getMessage()
             ], 500);
         }
     }

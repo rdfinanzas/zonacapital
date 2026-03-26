@@ -3,10 +3,12 @@
 namespace App\Http\Controllers;
 
 use App\Models\NotaJuridica;
+use App\Models\NotaJuridicaHistorial;
 use App\Models\Personal;
 use App\Models\Usuario;
 use App\Models\PlantillaDocumento;
 use App\Helpers\ConfiguracionNotaHelper;
+use App\Services\GoogleDriveService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -31,7 +33,14 @@ class NotaJuridicaController extends Controller
             ->orderBy('nombre_plantilla')
             ->get();
 
-        return view('notas-juridicas', compact('personal', 'anios', 'plantillas'));
+        // Obtener logo y leyenda por defecto del sistema
+        $logoDefault = ConfiguracionController::getLogoPath();
+        $leyendaDefault = \App\Models\LeyendaAnual::getPorAnio(date('Y'));
+
+        // Obtener estados del modelo para centralizar
+        $estados = NotaJuridica::ESTADOS;
+        
+        return view('notas-juridicas', compact('personal', 'anios', 'plantillas', 'logoDefault', 'leyendaDefault', 'estados'));
     }
 
     /**
@@ -75,9 +84,9 @@ class NotaJuridicaController extends Controller
                 $query->where('numero', $request->numero);
             }
 
-            // Filtro por estado
+            // Filtro por estado (ID numérico)
             if ($request->filled('estado')) {
-                $query->where('estado', $request->estado);
+                $query->where('estado', (int) $request->estado);
             }
 
             // Filtro por tipo
@@ -96,6 +105,13 @@ class NotaJuridicaController extends Controller
             // Paginación
             $perPage = $request->get('per_page', 15);
             $notas = $query->paginate($perPage);
+
+            // Agregar texto y badge de estado a cada nota
+            $notas->getCollection()->transform(function ($nota) {
+                $nota->estado_texto = $nota->estado_texto;
+                $nota->estado_badge = $nota->getEstadoBadgeClass();
+                return $nota;
+            });
 
             return response()->json($notas);
 
@@ -193,18 +209,40 @@ class NotaJuridicaController extends Controller
                 'fecha_creacion' => 'required|date',
                 'personal_id' => 'nullable|exists:empleados,idEmpleado',
                 'nota_referencia_id' => 'nullable|exists:notas_juridicas,idNotaJuridica',
-                'tipo' => 'required|in:creada,adjunta',
-                'estado' => 'required|in:borrador,finalizada,enviada',
+                'tipo' => 'nullable|in:creada,adjunta,completa',  // Ya no es required, nullable
+                'estado' => 'required|' . NotaJuridica::getEstadosValidacion(),
                 'archivo_base64' => 'nullable|string',
                 'archivo_nombre' => 'nullable|string',
                 'plantilla_id' => 'nullable|exists:plantillas_documentos,idPlantilla',
-                'configuracion' => 'nullable|array', // Nueva configuración JSON
+                'configuracion' => 'nullable|array',
+                'crear_google_doc' => 'nullable|boolean',
+                'google_doc_template_id' => 'nullable|string',
+                'google_doc_id' => 'nullable|string',
+                'google_doc_link' => 'nullable|string',
+                'es_plantilla' => 'nullable|boolean',
+                'nombre_plantilla' => 'nullable|string|max:255',
             ]);
 
             DB::beginTransaction();
 
             $anio = date('Y', strtotime($validated['fecha_creacion']));
-            $numero = NotaJuridica::obtenerProximoNumero((int)$anio);
+
+            // Usar el número enviado desde el formulario, o generar uno automáticamente
+            $numero = $request->filled('numero') ? (int)$request->input('numero') : NotaJuridica::obtenerProximoNumero((int)$anio);
+
+            // Validar que no exista otra nota con el mismo número y año (incluyendo soft deletes)
+            $existe = NotaJuridica::withTrashed()
+                ->where('anio', $anio)
+                ->where('numero', $numero)
+                ->first();
+
+            if ($existe) {
+                DB::rollBack();
+                return response()->json([
+                    'success' => false,
+                    'message' => "Ya existe una nota con el número {$numero}/{$anio}. Utilice otro número."
+                ], 422);
+            }
 
             // Construir configuración si viene en el nuevo formato
             $configuracion = null;
@@ -239,10 +277,14 @@ class NotaJuridicaController extends Controller
                 'plantilla_id' => $validated['plantilla_id'] ?? null,
                 'configuracion' => $configuracion,
                 'creado_por' => session('usuario_id') ?? auth()->id() ?? 1,
+                'google_doc_id' => $validated['google_doc_id'] ?? null,
+                'google_doc_link' => $validated['google_doc_link'] ?? null,
+                'es_plantilla' => $request->boolean('es_plantilla'),
+                'nombre_plantilla' => $request->boolean('es_plantilla') ? ($validated['nombre_plantilla'] ?? $validated['titulo']) : null,
             ];
 
-            // Manejar archivo si es tipo adjunta
-            if ($validated['tipo'] === 'adjunta' && $request->filled('archivo_base64')) {
+            // Manejar archivo si viene (independiente del tipo)
+            if ($request->filled('archivo_base64')) {
                 $archivoData = $this->guardarArchivo($request->archivo_base64, $request->archivo_nombre);
                 $notaData['archivo_path'] = $archivoData['path'];
                 $notaData['google_drive_file_id'] = $archivoData['drive_id'] ?? null;
@@ -258,6 +300,18 @@ class NotaJuridicaController extends Controller
             }
 
             $nota = NotaJuridica::create($notaData);
+
+            // Crear documento en Google Docs si se solicitó
+            if ($request->filled('crear_google_doc') && $request->crear_google_doc) {
+                $googleDoc = $this->crearGoogleDoc($nota, $request->google_doc_template_id ?? null);
+                if ($googleDoc) {
+                    $nota->update([
+                        'google_doc_id' => $googleDoc['id'],
+                        'google_doc_link' => $googleDoc['link']
+                    ]);
+                    $nota->refresh();
+                }
+            }
 
             DB::commit();
 
@@ -287,10 +341,16 @@ class NotaJuridicaController extends Controller
             $nota = NotaJuridica::with(['personal', 'notaReferencia', 'creador', 'plantilla'])
                 ->findOrFail($id);
 
+            // Agregar estado con texto para el frontend
+            $notaArray = $nota->toArray();
+            $notaArray['estado_texto'] = $nota->estado_texto;
+            $notaArray['estado_badge'] = $nota->getEstadoBadgeClass();
+
             return response()->json([
                 'success' => true,
-                'data' => $nota,
-                'configuracion' => $nota->configuracion_completa
+                'data' => $notaArray,
+                'configuracion' => $nota->configuracion_completa,
+                'estados_disponibles' => NotaJuridica::ESTADOS
             ]);
 
         } catch (\Exception $e) {
@@ -310,6 +370,16 @@ class NotaJuridicaController extends Controller
         try {
             $nota = NotaJuridica::findOrFail($id);
 
+            // Log para depuración
+            Log::debug('NotaJuridica update - Request data:', [
+                'id' => $id,
+                'estado_recibido' => $request->input('estado'),
+                'tipo_recibido' => $request->input('tipo'),
+                'google_doc_id' => $request->input('google_doc_id'),
+                'nota_existente_google_doc_id' => $nota->google_doc_id,
+                'nota_existente_estado' => $nota->estado,
+            ]);
+
             $validated = $request->validate([
                 'titulo' => 'required|string|max:255',
                 'descripcion' => 'nullable|string',
@@ -317,15 +387,39 @@ class NotaJuridicaController extends Controller
                 'fecha_creacion' => 'required|date',
                 'personal_id' => 'nullable|exists:empleados,idEmpleado',
                 'nota_referencia_id' => 'nullable|exists:notas_juridicas,idNotaJuridica',
-                'tipo' => 'required|in:creada,adjunta',
-                'estado' => 'required|in:borrador,finalizada,enviada',
+                'tipo' => 'nullable|in:creada,adjunta,completa',
+                'estado' => 'required|' . NotaJuridica::getEstadosValidacion(),
                 'archivo_base64' => 'nullable|string',
                 'archivo_nombre' => 'nullable|string',
                 'eliminar_archivo' => 'nullable|boolean',
                 'configuracion' => 'nullable|array',
+                'google_doc_id' => 'nullable|string',
+                'google_doc_link' => 'nullable|string',
             ]);
 
             DB::beginTransaction();
+
+            // Validar duplicado de número/año si se está cambiando el número
+            if ($request->filled('numero') && $request->input('numero') != $nota->numero) {
+                $nuevoNumero = (int)$request->input('numero');
+                $anio = $nota->anio; // Mantener el año actual de la nota
+
+                $existe = NotaJuridica::withTrashed()
+                    ->where('anio', $anio)
+                    ->where('numero', $nuevoNumero)
+                    ->where('idNotaJuridica', '!=', $id)
+                    ->first();
+
+                if ($existe) {
+                    DB::rollBack();
+                    return response()->json([
+                        'success' => false,
+                        'message' => "Ya existe una nota con el número {$nuevoNumero}/{$anio}. Utilice otro número."
+                    ], 422);
+                }
+
+                $notaData['numero'] = $nuevoNumero;
+            }
 
             // Construir configuración si viene en el nuevo formato
             $configuracion = null;
@@ -336,6 +430,22 @@ class NotaJuridicaController extends Controller
                 $configuracion = ConfiguracionNotaHelper::desdeRequest($request->all());
             }
 
+            // Determinar el tipo basado en los datos existentes y nuevos
+            // Si no se envía tipo, recalcular basado en lo que tiene la nota
+            $tipo = $validated['tipo'];
+            if (is_null($tipo)) {
+                $tieneGoogleDoc = !empty($validated['google_doc_id']) || !empty($validated['google_doc_link']) || !empty($nota->google_doc_id) || !empty($nota->google_doc_link);
+                $tieneArchivo = !empty($validated['archivo_base64']) || !empty($nota->archivo_path) || !empty($nota->google_drive_file_id);
+                
+                if ($tieneGoogleDoc && $tieneArchivo) {
+                    $tipo = 'completa';
+                } elseif ($tieneGoogleDoc) {
+                    $tipo = 'creada';
+                } elseif ($tieneArchivo) {
+                    $tipo = 'adjunta';
+                }
+            }
+
             $notaData = [
                 'titulo' => $validated['titulo'],
                 'descripcion' => $configuracion['contenido'] ?? $validated['descripcion'] ?? null,
@@ -343,12 +453,14 @@ class NotaJuridicaController extends Controller
                 'fecha_creacion' => $validated['fecha_creacion'],
                 'personal_id' => $validated['personal_id'] ?? null,
                 'nota_referencia_id' => $validated['nota_referencia_id'] ?? null,
-                'tipo' => $validated['tipo'],
+                'tipo' => $tipo,
                 'estado' => $validated['estado'],
                 'configuracion' => $configuracion,
+                'google_doc_id' => $validated['google_doc_id'] ?? $nota->google_doc_id,
+                'google_doc_link' => $validated['google_doc_link'] ?? $nota->google_doc_link,
             ];
 
-            // Manejar archivo
+            // Manejar archivo (independiente del tipo)
             if ($request->filled('eliminar_archivo') && $request->eliminar_archivo) {
                 if ($nota->archivo_path && file_exists(public_path($nota->archivo_path))) {
                     unlink(public_path($nota->archivo_path));
@@ -356,7 +468,8 @@ class NotaJuridicaController extends Controller
                 $notaData['archivo_path'] = null;
                 $notaData['google_drive_file_id'] = null;
                 $notaData['google_drive_link'] = null;
-            } elseif ($validated['tipo'] === 'adjunta' && $request->filled('archivo_base64')) {
+            } elseif ($request->filled('archivo_base64')) {
+                // Eliminar archivo anterior si existe
                 if ($nota->archivo_path && file_exists(public_path($nota->archivo_path))) {
                     unlink(public_path($nota->archivo_path));
                 }
@@ -375,8 +488,15 @@ class NotaJuridicaController extends Controller
             }
 
             $nota->update($notaData);
+            $nota->refresh(); // Recargar para asegurar datos actualizados
 
             DB::commit();
+
+            Log::debug('NotaJuridica update - Guardado exitoso:', [
+                'id' => $nota->idNotaJuridica,
+                'estado_guardado' => $nota->estado,
+                'tipo_guardado' => $nota->tipo,
+            ]);
 
             return response()->json([
                 'success' => true,
@@ -444,6 +564,66 @@ class NotaJuridicaController extends Controller
     }
 
     /**
+     * Obtener historial de una nota jurídica
+     */
+    public function historial($id)
+    {
+        try {
+            $nota = NotaJuridica::findOrFail($id);
+            $historial = $nota->historial()->with('usuario')->get();
+
+            return response()->json([
+                'success' => true,
+                'data' => $historial
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Error al obtener historial: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al obtener el historial'
+            ], 500);
+        }
+    }
+
+    /**
+     * Agregar novedad al historial
+     */
+    public function agregarNovedad(Request $request, $id)
+    {
+        try {
+            $nota = NotaJuridica::findOrFail($id);
+
+            $validated = $request->validate([
+                'descripcion' => 'required|string|max:2000',
+            ]);
+
+            $novedad = NotaJuridicaHistorial::create([
+                'nota_juridica_id' => $nota->idNotaJuridica,
+                'usuario_id' => session('usuario_id') ?? auth()->id() ?? null,
+                'descripcion' => $validated['descripcion'],
+                'created_at' => now(),
+            ]);
+
+            // Cargar la relación de usuario
+            $novedad->load('usuario');
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Novedad agregada exitosamente',
+                'data' => $novedad
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Error al agregar novedad: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al agregar la novedad: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
      * Obtener lista de plantillas del módulo notas-juridicas
      */
     public function plantillas()
@@ -501,9 +681,12 @@ class NotaJuridicaController extends Controller
     }
 
     /**
-     * Guardar archivo (local y/o Google Drive)
+     * Guardar archivo (local y opcionalmente a Google Drive)
+     * @param string $base64String Archivo en base64
+     * @param string|null $nombreArchivo Nombre del archivo
+     * @param bool $subirAGoogleDrive Si debe subir a Google Drive (default: false)
      */
-    private function guardarArchivo($base64String, $nombreArchivo = null)
+    private function guardarArchivo($base64String, $nombreArchivo = null, $subirAGoogleDrive = false)
     {
         try {
             // Extraer tipo de archivo y datos
@@ -538,15 +721,20 @@ class NotaJuridicaController extends Controller
 
             $path = 'img/notas_juridicas/' . $nombreArchivo;
 
-            // Intentar subir a Google Drive si está configurado
+            // Solo subir a Google Drive si explícitamente se solicita
             $driveId = null;
             $driveLink = null;
 
-            if (config('services.google_drive.folder_id')) {
-                $driveResult = $this->subirAGoogleDrive($fileData, $nombreArchivo, $mimeType);
-                if ($driveResult) {
-                    $driveId = $driveResult['id'];
-                    $driveLink = $driveResult['link'];
+            if ($subirAGoogleDrive && config('services.google_drive.folder_id')) {
+                try {
+                    $driveResult = $this->subirAGoogleDrive($fileData, $nombreArchivo, $mimeType);
+                    if ($driveResult) {
+                        $driveId = $driveResult['id'];
+                        $driveLink = $driveResult['link'];
+                    }
+                } catch (\Exception $e) {
+                    Log::warning('No se pudo subir a Google Drive: ' . $e->getMessage());
+                    // No fallar el guardado si Google Drive falla
                 }
             }
 
@@ -632,5 +820,312 @@ class NotaJuridicaController extends Controller
         ];
 
         return $mimeToExt[$mimeType] ?? 'pdf';
+    }
+
+    /**
+     * Crear documento en Google Docs
+     */
+    private function crearGoogleDoc($nota, $templateId = null)
+    {
+
+        try {
+            $googleDrive = new GoogleDriveService();
+
+            if (!$googleDrive->isConfigured()) {
+                Log::warning('Google Drive no configurado para crear documento');
+                return null;
+            }
+
+            $nombreDocumento = "Nota {$nota->numero}/{$nota->anio} - {$nota->titulo}";
+
+            // Si hay template, copiar; si no, crear vacío
+            if ($templateId) {
+                $result = $googleDrive->copyDocument($templateId, $nombreDocumento);
+            } else {
+                $contenido = $nota->descripcion ?? '';
+                $result = $googleDrive->createDocument($nombreDocumento, $contenido);
+            }
+
+            if ($result) {
+                $googleDrive->shareDocument($result['id']);
+                return $result;
+            }
+
+            return null;
+
+        } catch (\Exception $e) {
+            Log::error('Error al crear Google Doc: ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Endpoint para listar documentos de Google Drive (plantillas)
+     */
+    public function listarPlantillasDrive()
+    {
+        try {
+            $googleDrive = new GoogleDriveService();
+
+            if (!$googleDrive->isConfigured()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Google Drive no configurado'
+                ], 400);
+            }
+
+            $documentos = $googleDrive->listDocuments();
+
+            // Filtrar solo documentos de Google Docs
+            $docs = array_filter($documentos, function($doc) {
+                return $doc['mimeType'] === 'application/vnd.google-apps.document';
+            });
+
+            return response()->json([
+                'success' => true,
+                'data' => array_values($docs)
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Error al listar plantillas Drive: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al obtener documentos'
+            ], 500);
+        }
+    }
+
+    /**
+     * Crear documento en Google Drive ANTES de guardar la nota
+     * Si ya existe un documento con el número/año, usar ese; si no, crear nuevo
+     * Devuelve el ID y link para abrir en nueva pestaña
+     */
+    public function crearDocDrive(Request $request)
+    {
+        try {
+            $googleDrive = new GoogleDriveService();
+
+            if (!$googleDrive->isConfigured()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Google Drive no está configurado. Verifique las credenciales.'
+                ], 400);
+            }
+
+            $validated = $request->validate([
+                'titulo' => 'nullable|string|max:255',
+                'template_id' => 'nullable|string',
+                'numero' => 'nullable|integer',
+                'anio' => 'nullable|integer',
+            ]);
+
+            $numero = $validated['numero'] ?? null;
+            $anio = $validated['anio'] ?? date('Y');
+            $templateId = $validated['template_id'] ?? null;
+
+            // Construir nombre del documento con número/año
+            $nombreDocumento = $numero
+                ? "Nota {$numero}/{$anio}"
+                : ($validated['titulo'] ?? 'Nueva Nota Jurídica - ' . date('d/m/Y H:i'));
+
+            // Buscar si ya existe un documento con ese nombre en Drive
+            $documentoExistente = $googleDrive->buscarDocumentoPorNombre($nombreDocumento);
+
+            if ($documentoExistente) {
+                // Si existe, devolver ese documento
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Documento existente encontrado',
+                    'existe' => true,
+                    'data' => [
+                        'google_doc_id' => $documentoExistente['id'],
+                        'google_doc_link' => $googleDrive->getDocumentLink($documentoExistente['id']),
+                        'nombre' => $documentoExistente['name']
+                    ]
+                ]);
+            }
+
+            // Si no existe, crear nuevo documento
+            if ($templateId) {
+                $result = $googleDrive->copyDocument($templateId, $nombreDocumento);
+            } else {
+                $result = $googleDrive->createDocument($nombreDocumento, '');
+            }
+
+            if (!$result) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No se pudo crear el documento en Google Drive'
+                ], 500);
+            }
+
+            // Compartir el documento para que sea editable por cualquiera con el link
+            $googleDrive->shareDocument($result['id']);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Documento creado exitosamente',
+                'existe' => false,
+                'data' => [
+                    'google_doc_id' => $result['id'],
+                    'google_doc_link' => $result['link'],
+                    'nombre' => $result['name'] ?? $nombreDocumento
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Error al crear documento en Drive: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al crear documento: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Verificar si un número de nota ya existe para un año
+     */
+    public function verificarNumero(Request $request)
+    {
+        try {
+            $validated = $request->validate([
+                'numero' => 'required|integer|min:1',
+                'anio' => 'required|integer|min:2000|max:2100',
+                'excluir_id' => 'nullable|integer'
+            ]);
+
+            $existe = NotaJuridica::withTrashed()
+                ->where('numero', $validated['numero'])
+                ->where('anio', $validated['anio']);
+
+            if (!empty($validated['excluir_id'])) {
+                $existe->where('idNotaJuridica', '!=', $validated['excluir_id']);
+            }
+
+            $notaExistente = $existe->first();
+
+            return response()->json([
+                'success' => true,
+                'existe' => !empty($notaExistente),
+                'mensaje' => !empty($notaExistente)
+                    ? "El número {$validated['numero']}/{$validated['anio']} ya está en uso"
+                    : null
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Error al verificar número: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al verificar el número'
+            ], 500);
+        }
+    }
+
+    /**
+     * Exportar notas jurídicas a Excel (CSV)
+     */
+    public function exportarExcel(Request $request)
+    {
+        try {
+            $query = NotaJuridica::with(['personal', 'creador'])
+                ->notas();
+
+            // Aplicar mismos filtros que en el listado
+            if ($request->filled('anio')) {
+                $query->where('anio', $request->anio);
+            }
+            if ($request->filled('fecha_desde')) {
+                $query->whereDate('fecha_creacion', '>=', $request->fecha_desde);
+            }
+            if ($request->filled('fecha_hasta')) {
+                $query->whereDate('fecha_creacion', '<=', $request->fecha_hasta);
+            }
+            if ($request->filled('personal')) {
+                $busqueda = $request->personal;
+                $query->whereHas('personal', function ($q) use ($busqueda) {
+                    $q->where('Nombre', 'LIKE', "%{$busqueda}%")
+                        ->orWhere('Apellido', 'LIKE', "%{$busqueda}%")
+                        ->orWhere('DNI', 'LIKE', "%{$busqueda}%");
+                });
+            }
+            if ($request->filled('numero')) {
+                $query->where('numero', $request->numero);
+            }
+            if ($request->filled('estado')) {
+                $query->where('estado', (int) $request->estado);
+            }
+            if ($request->filled('busqueda')) {
+                $query->buscar($request->busqueda);
+            }
+
+            $notas = $query->orderBy('anio', 'desc')
+                ->orderBy('numero', 'desc')
+                ->get();
+
+            // Nombre del archivo
+            $fecha = date('Y-m-d_H-i-s');
+            $filename = "notas_juridicas_{$fecha}.csv";
+
+            // Headers para descarga
+            $headers = [
+                'Content-Type' => 'text/csv; charset=UTF-8',
+                'Content-Disposition' => "attachment; filename=\"{$filename}\"",
+                'Pragma' => 'no-cache',
+                'Cache-Control' => 'must-revalidate, post-check=0, pre-check=0',
+            ];
+
+            // Generar CSV
+            $callback = function () use ($notas) {
+                $file = fopen('php://output', 'w');
+                
+                // BOM para Excel reconozca UTF-8
+                fprintf($file, chr(0xEF).chr(0xBB).chr(0xBF));
+
+                // Encabezados
+                fputcsv($file, [
+                    'Nº Nota',
+                    'Año',
+                    'Fecha Creación',
+                    'Título',
+                    'Personal',
+                    'DNI',
+                    'Estado',
+                    'Tipo',
+                    'Creador',
+                    'Observación',
+                    'Tiene Google Doc',
+                    'Tiene Archivo'
+                ], ';');
+
+                // Datos
+                foreach ($notas as $nota) {
+                    fputcsv($file, [
+                        $nota->numero,
+                        $nota->anio,
+                        $nota->fecha_creacion ? $nota->fecha_creacion->format('d/m/Y') : '',
+                        $nota->titulo,
+                        $nota->personal ? "{$nota->personal->Apellido}, {$nota->personal->Nombre}" : '-',
+                        $nota->personal ? $nota->personal->DNI : '-',
+                        $nota->estado_texto,
+                        $nota->tipo_label,
+                        $nota->creador ? "{$nota->creador->Apellido}, {$nota->creador->Nombre}" : '-',
+                        $nota->observacion,
+                        $nota->tieneGoogleDoc() ? 'Sí' : 'No',
+                        $nota->tieneArchivoAdjunto() ? 'Sí' : 'No'
+                    ], ';');
+                }
+
+                fclose($file);
+            };
+
+            return response()->stream($callback, 200, $headers);
+
+        } catch (\Exception $e) {
+            Log::error('Error al exportar Excel: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al exportar a Excel: ' . $e->getMessage()
+            ], 500);
+        }
     }
 }

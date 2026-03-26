@@ -3,6 +3,9 @@
     'moduloId' => null,
     'moduloUrl' => null,
     'titulo' => 'Editor de Notas',
+    'logoDefault' => null,
+    'leyendaDefault' => null,
+    'mostrarEncabezado' => true,
 ])
 
 <!-- Modal Editor de Notas Universal -->
@@ -22,11 +25,16 @@
                     <div class="col-md-8 border-end">
                         <div class="p-3 h-100 d-flex flex-column">
                             <!-- Encabezado configurable -->
-                            <div class="card mb-3">
-                                <div class="card-header py-2 bg-light">
-                                    <span class="fw-bold"><i class="fas fa-heading"></i> Encabezado</span>
+                            <div class="card mb-3" id="seccion_encabezado">
+                                <div class="card-header py-2 bg-light d-flex justify-content-between align-items-center">
+                                    <div class="form-check form-switch mb-0">
+                                        <input class="form-check-input" type="checkbox" id="check_incluir_encabezado" {{ $mostrarEncabezado ? 'checked' : '' }}>
+                                        <label class="form-check-label fw-bold" for="check_incluir_encabezado">
+                                            <i class="fas fa-heading"></i> Incluir Encabezado
+                                        </label>
+                                    </div>
                                 </div>
-                                <div class="card-body py-2">
+                                <div class="card-body py-2" id="contenedor_encabezado">
                                     <div class="row align-items-center">
                                         <div class="col-auto">
                                             <div class="logo-upload-container" id="logo_container" title="Click para subir logo">
@@ -50,14 +58,16 @@
                                 </div>
                             </div>
 
-                            <!-- Editor CKEditor -->
-                            <div class="card flex-grow-1 mb-3">
+                            <!-- Editor CKEditor 5 -->
+                            <div class="card flex-grow-1 mb-3 d-flex flex-column" id="card_editor_contenido">
                                 <div class="card-header py-2 bg-light">
                                     <span class="fw-bold"><i class="fas fa-edit"></i> Contenido</span>
                                 </div>
-                                <div class="card-body p-0">
-                                    <textarea id="contenido_editor" name="contenido" class="form-control border-0"
-                                        style="min-height: 400px;" autocomplete="off"></textarea>
+                                <div class="card-body p-0 flex-grow-1" id="editor_container">
+                                    <!-- Toolbar de CKEditor -->
+                                    <div id="toolbar-container-{{ $id }}"></div>
+                                    <!-- Área de edición (simula hoja de papel) -->
+                                    <div id="editor-container-{{ $id }}"></div>
                                 </div>
                             </div>
 
@@ -119,33 +129,37 @@
                         </div>
                     </div>
 
-                    <!-- Panel Derecho: Vista Previa -->
+                    <!-- Panel Derecho: Configuración -->
                     <div class="col-md-4 bg-light">
                         <div class="p-3 h-100 d-flex flex-column">
-                            <div class="d-flex justify-content-between align-items-center mb-2">
-                                <span class="fw-bold"><i class="fas fa-eye"></i> Vista Previa</span>
-                                <button type="button" id="btn_actualizar_preview" class="btn btn-sm btn-outline-primary">
-                                    <i class="fas fa-sync"></i> Actualizar
-                                </button>
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <span class="fw-bold"><i class="fas fa-cog"></i> Configuración</span>
                             </div>
 
-                            <!-- Contenedor de vista previa -->
-                            <div class="preview-container flex-grow-1 overflow-auto" id="preview_container">
-                                <div class="preview-page" id="preview_page">
-                                    <div class="preview-header" id="preview_header">
-                                        <div class="preview-logo" id="preview_logo"></div>
-                                        <div class="preview-leyenda" id="preview_leyenda"></div>
+                            <!-- Resumen de configuración -->
+                            <div class="card mb-3">
+                                <div class="card-body py-2">
+                                    <div class="mb-2">
+                                        <strong>Tamaño:</strong> <span id="info_pagina">Legal - Vertical</span>
                                     </div>
-                                    <div class="preview-content" id="preview_content">
-                                        <p class="text-muted text-center">El contenido aparecerá aquí...</p>
+                                    <div class="mb-2">
+                                        <strong>Márgenes:</strong> <span id="info_margenes">2/2/2.5/2.5 cm</span>
+                                    </div>
+                                    <div>
+                                        <strong>Encabezado:</strong> <span id="info_encabezado_estado">Incluido</span>
                                     </div>
                                 </div>
                             </div>
 
-                            <!-- Información de configuración -->
-                            <div class="mt-2 small text-muted" id="preview_info">
-                                <span id="info_pagina">Legal - Vertical</span> |
-                                <span id="info_margenes">Márgenes: 2/2/2.5/2.5 cm</span>
+                            <!-- Botón de Vista Previa -->
+                            <button type="button" id="btn_vista_previa" class="btn btn-primary mb-3">
+                                <i class="fas fa-eye"></i> Ver Vista Previa
+                            </button>
+
+                            <!-- Instrucciones -->
+                            <div class="alert alert-info small mb-0">
+                                <i class="fas fa-info-circle"></i>
+                                <strong>Tip:</strong> Edita tu documento y haz clic en "Ver Vista Previa" para ver cómo quedará el documento final.
                             </div>
                         </div>
                     </div>
@@ -167,6 +181,37 @@
                 </button>
                 <button type="button" id="btn_guardar_nota" class="btn btn-success">
                     <i class="fas fa-check"></i> Guardar Nota
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal de Vista Previa -->
+<div class="modal fade" id="modalVistaPrevia{{ $id }}" tabindex="-1">
+    <div class="modal-dialog modal-xl modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title"><i class="fas fa-eye"></i> Vista Previa del Documento</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body bg-secondary p-4">
+                <div class="d-flex justify-content-center overflow-auto">
+                    <div class="preview-document" id="preview_document_{{ $id }}">
+                        <div class="preview-doc-header" id="preview_doc_header"></div>
+                        <div class="preview-doc-content" id="preview_doc_content"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <div class="me-auto">
+                    <span class="badge bg-info" id="preview_doc_info">Legal - Vertical</span>
+                </div>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    <i class="fas fa-times"></i> Cerrar
+                </button>
+                <button type="button" class="btn btn-primary" id="btn_imprimir_preview">
+                    <i class="fas fa-print"></i> Imprimir
                 </button>
             </div>
         </div>
@@ -205,141 +250,218 @@
         color: #adb5bd;
     }
 
-    /* Vista previa */
-    .preview-container {
-        background: #6c757d;
-        border-radius: 8px;
-        padding: 20px;
+    /* CKEditor 5 */
+    #card_editor_contenido {
+        min-height: 400px;
+    }
+
+    #editor_container {
         display: flex;
-        justify-content: center;
+        flex-direction: column;
+        align-items: center;
+        background: #e9ecef;
+        padding: 20px;
+        overflow-y: auto;
     }
 
-    .preview-page {
-        background: white;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.3);
-        transform-origin: top center;
-        /* Tamaño base que se ajustará con JS */
-        width: 216px;
-        min-height: 356px;
+    #toolbar-container-{{ $id }} {
+        width: 816px;
+        max-width: 100%;
+    }
+
+    #toolbar-container-{{ $id }} .ck-toolbar {
+        border: 1px solid #dee2e6 !important;
+        border-bottom: none !important;
+        border-radius: 0 !important;
+        background: #f8f9fa !important;
+    }
+
+    #editor-container-{{ $id }} {
+        width: 816px;
+        max-width: 100%;
+        min-height: 1056px;
+        border: 1px solid #dee2e6;
+        border-top: none;
+        background: #fff;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+        box-sizing: border-box;
+    }
+
+    #editor-container-{{ $id }} .ck-editor__editable {
+        min-height: 1000px;
         padding: 20px 25px;
+        line-height: 1.6;
+        box-sizing: border-box;
         font-family: 'Times New Roman', Times, serif;
-        font-size: 8px;
-        line-height: 1.4;
+        font-size: 12pt;
     }
 
-    .preview-header {
+    .ck-content {
+        box-sizing: border-box;
+        font-family: 'Times New Roman', Times, serif;
+        font-size: 12pt;
+        line-height: 1.6;
+    }
+
+    .ck-content p {
+        margin: 0 0 10px 0;
+    }
+
+    .ck-content ul,
+    .ck-content ol {
+        margin: 0 0 10px 0;
+        padding-left: 40px;
+    }
+
+    .ck-content table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 10px 0;
+    }
+
+    .ck-content table td,
+    .ck-content table th {
+        border: 1px solid #333;
+        padding: 8px;
+    }
+
+    /* Vista previa en modal */
+    .preview-document {
+        background: white;
+        width: 816px;
+        min-height: 1056px;
+        padding: 20px 25px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        font-family: 'Times New Roman', Times, serif;
+        font-size: 12pt;
+        line-height: 1.6;
+        box-sizing: border-box;
+    }
+
+    .preview-doc-header {
         display: flex;
         justify-content: space-between;
         align-items: flex-start;
-        padding-bottom: 8px;
+        padding-bottom: 10px;
         border-bottom: 1px solid #333;
-        margin-bottom: 10px;
-        min-height: 30px;
+        margin-bottom: 15px;
+        min-height: 60px;
     }
 
-    .preview-logo img {
-        max-width: 60px;
-        max-height: 25px;
-    }
-
-    .preview-leyenda {
-        text-align: right;
-        font-style: italic;
-        font-size: 6px;
-        color: #555;
-        white-space: pre-line;
-    }
-
-    .preview-content {
+    .preview-doc-content {
         text-align: justify;
     }
 
-    .preview-content p {
-        margin-bottom: 6px;
+    .preview-doc-content p {
+        margin: 0 0 10px 0;
     }
 
-    .preview-content ul, .preview-content ol {
-        margin-left: 1.5em;
-        margin-bottom: 6px;
-    }
-
-    .preview-content table {
-        width: 100%;
-        border-collapse: collapse;
-        margin: 6px 0;
-    }
-
-    .preview-content table th,
-    .preview-content table td {
-        border: 1px solid #333;
-        padding: 4px;
-    }
-
-    /* Responsive del modal */
     @@media (max-width: 992px) {
-        .preview-container {
-            padding: 10px;
-        }
-
-        .preview-page {
+        .preview-document {
             width: 100%;
             min-height: auto;
         }
     }
 </style>
 
+<!-- CKEditor 5 desde CDN -->
+<script src="https://cdn.ckeditor.com/ckeditor5/39.0.0/decoupled-document/ckeditor.js"></script>
+<script src="https://cdn.ckeditor.com/ckeditor5/39.0.0/decoupled-document/translations/es.js"></script>
+
 <script>
-    // Variables del componente
     window.EditorNotas = window.EditorNotas || {};
     window.EditorNotas['{{ $id }}'] = {
         moduloId: {{ $moduloId ?? 'null' }},
         moduloUrl: '{{ $moduloUrl ?? '' }}',
-        ckeditorInstance: null,
+        editorInstance: null,
         logoBase64: null,
         configActual: null,
         callbackGuardar: null,
         callbackGuardarPlantilla: null,
+        modalInstance: null,
+        editorReady: false,
+        mostrarEncabezado: {{ $mostrarEncabezado ? 'true' : 'false' }},
+        defaultsSistema: {
+            logoPath: '{{ $logoDefault ?? '' }}',
+            leyenda: {!! json_encode($leyendaDefault ?? '') !!}
+        },
 
-        // Inicializar el editor
         init: function() {
+            console.log('Inicializando editor de notas...');
             this.initCKEditor();
-            this.initLogoUpload();
             this.initEventListeners();
+            this.initLogoUpload();
             this.loadDefaults();
         },
 
-        // Inicializar CKEditor
-        initCKEditor: function() {
-            const el = document.getElementById('contenido_editor');
-            if (!el) return;
-
-            // Esperar a que CKEditor esté disponible
-            if (typeof ClassicEditor === 'undefined') {
-                setTimeout(() => this.initCKEditor(), 100);
-                return;
-            }
-
+        initCKEditor: async function() {
             const self = this;
 
-            ClassicEditor.create(el, {
-                language: 'es',
-                toolbar: [
-                    'undo', 'redo',
-                    '|', 'bold', 'italic', 'underline', 'strikethrough',
-                    '|', 'bulletedList', 'numberedList',
-                    '|', 'link', 'blockQuote', 'insertTable',
-                    '|', 'heading', 'removeFormat'
-                ]
-            }).then(editor => {
-                self.ckeditorInstance = editor;
-                editor.model.document.on('change:data', () => {
-                    self.actualizarVistaPrevia();
-                });
-            }).catch(err => console.error('Error CKEditor:', err));
+            if (this.editorReady && this.editorInstance) return;
+
+            try {
+                this.editorInstance = await DecoupledEditor
+                    .create(document.getElementById('editor-container-{{ $id }}'), {
+                        language: 'es',
+                        toolbar: {
+                            items: [
+                                'undo', 'redo',
+                                '|', 'heading', 'fontsize', 'fontFamily',
+                                '|', 'bold', 'italic', 'underline', 'strikethrough', 'subscript', 'superscript',
+                                '|', 'fontColor', 'fontBackgroundColor',
+                                '|', 'alignment', 'outdent', 'indent',
+                                '|', 'bulletedList', 'numberedList', 'todoList',
+                                '|', 'insertTable', 'blockQuote', 'horizontalLine',
+                                '|', 'link', 'imageInsert', 'mediaEmbed',
+                                '|', 'findAndReplace', 'sourceEditing'
+                            ]
+                        },
+                        fontSize: {
+                            options: [8, 9, 10, 11, 12, 'default', 14, 16, 18, 20, 22, 24, 26, 28, 36, 48, 72],
+                            supportAllValues: true
+                        },
+                        fontFamily: {
+                            options: [
+                                'default',
+                                'Arial, Helvetica, sans-serif',
+                                'Times New Roman, Times, serif',
+                                'Courier New, Courier, monospace',
+                                'Georgia, serif',
+                                'Verdana, Geneva, sans-serif'
+                            ],
+                            supportAllValues: true
+                        },
+                        heading: {
+                            options: [
+                                { model: 'paragraph', title: 'Párrafo', class: 'ck-heading_paragraph' },
+                                { model: 'heading1', view: 'h1', title: 'Título 1', class: 'ck-heading_heading1' },
+                                { model: 'heading2', view: 'h2', title: 'Título 2', class: 'ck-heading_heading2' },
+                                { model: 'heading3', view: 'h3', title: 'Título 3', class: 'ck-heading_heading3' }
+                            ]
+                        },
+                        table: {
+                            contentToolbar: ['tableColumn', 'tableRow', 'mergeTableCells', 'tableProperties', 'tableCellProperties']
+                        },
+                        image: {
+                            toolbar: ['imageTextAlternative', 'toggleImageCaption', 'imageStyle:inline', 'imageStyle:block', 'imageStyle:side']
+                        }
+                    });
+
+                const toolbarContainer = document.getElementById('toolbar-container-{{ $id }}');
+                toolbarContainer.innerHTML = '';
+                toolbarContainer.appendChild(this.editorInstance.ui.view.toolbar.element);
+
+                this.editorReady = true;
+                console.log('CKEditor 5 inicializado correctamente');
+
+            } catch (error) {
+                console.error('Error inicializando CKEditor 5:', error);
+            }
         },
 
-        // Inicializar carga de logo
         initLogoUpload: function() {
+            if (!this.mostrarEncabezado) return;
+
             const container = document.getElementById('logo_container');
             const input = document.getElementById('logo_input');
             const self = this;
@@ -356,39 +478,52 @@
                     document.getElementById('logo_path').value = self.logoBase64;
                     container.innerHTML = `<img src="${self.logoBase64}" alt="Logo">`;
                     document.getElementById('btn_eliminar_logo').classList.remove('d-none');
-                    self.actualizarVistaPrevia();
                 };
                 reader.readAsDataURL(file);
             });
 
-            document.getElementById('btn_eliminar_logo').addEventListener('click', function() {
+            document.getElementById('btn_eliminar_logo').addEventListener('click', function(e) {
+                e.stopPropagation();
                 self.logoBase64 = null;
                 document.getElementById('logo_path').value = '';
-                container.innerHTML = `
-                    <div class="logo-placeholder">
-                        <i class="fas fa-image fa-2x"></i>
-                        <small class="d-block">Logo</small>
-                    </div>
-                `;
-                this.classList.add('d-none');
-                self.actualizarVistaPrevia();
+
+                if (self.defaultsSistema.logoPath) {
+                    container.innerHTML = `<img src="/${self.defaultsSistema.logoPath}" alt="Logo">`;
+                    document.getElementById('btn_eliminar_logo').classList.remove('d-none');
+                } else {
+                    container.innerHTML = `
+                        <div class="logo-placeholder">
+                            <i class="fas fa-image fa-2x"></i>
+                            <small class="d-block">Logo</small>
+                        </div>
+                    `;
+                    document.getElementById('btn_eliminar_logo').classList.add('d-none');
+                }
             });
         },
 
-        // Event listeners
         initEventListeners: function() {
             const self = this;
 
-            // Actualizar vista previa
-            document.getElementById('btn_actualizar_preview').addEventListener('click', () => {
-                self.actualizarVistaPrevia();
+            // Checkbox de incluir encabezado
+            const checkEncabezado = document.getElementById('check_incluir_encabezado');
+            if (checkEncabezado) {
+                checkEncabezado.addEventListener('change', function() {
+                    self.mostrarEncabezado = this.checked;
+                    self.toggleEncabezado(this.checked);
+                });
+            }
+
+            // Botón de Vista Previa
+            document.getElementById('btn_vista_previa').addEventListener('click', () => {
+                self.mostrarVistaPrevia();
             });
 
             // Cambios en configuración de página
             ['tamano_pagina', 'orientacion', 'margen_superior', 'margen_inferior',
              'margen_izquierdo', 'margen_derecho', 'leyenda_encabezado'].forEach(id => {
                 const el = document.getElementById(id);
-                if (el) el.addEventListener('change', () => self.actualizarVistaPrevia());
+                if (el) el.addEventListener('change', () => self.actualizarInfo());
             });
 
             // Guardar nota
@@ -415,33 +550,65 @@
                     self.guardarPlantilla(nombre, config);
                 }
             });
+
+            // Imprimir desde preview
+            document.getElementById('btn_imprimir_preview').addEventListener('click', function() {
+                window.print();
+            });
         },
 
-        // Cargar valores por defecto
-        loadDefaults: async function() {
-            try {
-                const resp = await fetch('/plantillas-documentos/defaults', {
-                    headers: { 'Accept': 'application/json' }
-                });
-                const data = await resp.json();
-
-                if (data.success) {
-                    this.configActual = data.data;
-                    this.actualizarVistaPrevia();
-                }
-            } catch (e) {
-                console.error('Error cargando defaults:', e);
+        toggleEncabezado: function(mostrar) {
+            const contenedor = document.getElementById('contenedor_encabezado');
+            if (contenedor) {
+                contenedor.style.display = mostrar ? '' : 'none';
             }
+            this.actualizarInfo();
         },
 
-        // Obtener configuración actual
-        obtenerConfiguracion: function() {
-            return {
+        loadDefaults: async function() {
+            const checkEncabezado = document.getElementById('check_incluir_encabezado');
+            const contenedorEncabezado = document.getElementById('contenedor_encabezado');
+
+            if (checkEncabezado) {
+                checkEncabezado.checked = this.mostrarEncabezado;
+            }
+
+            if (contenedorEncabezado) {
+                contenedorEncabezado.style.display = this.mostrarEncabezado ? '' : 'none';
+            }
+
+            if (this.mostrarEncabezado) {
+                const container = document.getElementById('logo_container');
+                const leyendaEl = document.getElementById('leyenda_encabezado');
+
+                if (this.defaultsSistema.logoPath) {
+                    this.logoBase64 = '/' + this.defaultsSistema.logoPath;
+                    document.getElementById('logo_path').value = this.logoBase64;
+                    container.innerHTML = `<img src="/${this.defaultsSistema.logoPath}" alt="Logo">`;
+                    document.getElementById('btn_eliminar_logo').classList.remove('d-none');
+                }
+
+                if (this.defaultsSistema.leyenda && leyendaEl) {
+                    leyendaEl.value = this.defaultsSistema.leyenda;
+                }
+            }
+
+            this.configActual = {
                 encabezado: {
-                    logo_path: this.logoBase64 || document.getElementById('logo_path').value || null,
-                    leyenda: document.getElementById('leyenda_encabezado').value || null,
+                    logo_path: this.logoBase64,
+                    leyenda: this.defaultsSistema.leyenda
                 },
-                contenido: this.ckeditorInstance ? this.ckeditorInstance.getData() : '',
+                contenido: '',
+                margenes: { superior: 2.0, inferior: 2.0, izquierdo: 2.5, derecho: 2.5 },
+                pagina: { tamano: 'legal', orientacion: 'portrait' }
+            };
+
+            this.actualizarInfo();
+        },
+
+        obtenerConfiguracion: function() {
+            const config = {
+                contenido: this.editorInstance ? this.editorInstance.getData() : '',
                 margenes: {
                     superior: parseFloat(document.getElementById('margen_superior').value) || 2.0,
                     inferior: parseFloat(document.getElementById('margen_inferior').value) || 2.0,
@@ -453,14 +620,21 @@
                     orientacion: document.getElementById('orientacion').value || 'portrait',
                 }
             };
+
+            if (this.mostrarEncabezado) {
+                config.encabezado = {
+                    logo_path: this.logoBase64 || document.getElementById('logo_path').value || null,
+                    leyenda: document.getElementById('leyenda_encabezado').value || null,
+                };
+            }
+
+            return config;
         },
 
-        // Cargar configuración existente
         cargarConfiguracion: function(config) {
             this.configActual = config;
 
-            // Encabezado
-            if (config.encabezado) {
+            if (this.mostrarEncabezado && config.encabezado) {
                 if (config.encabezado.logo_path) {
                     this.logoBase64 = config.encabezado.logo_path;
                     document.getElementById('logo_path').value = this.logoBase64;
@@ -472,12 +646,10 @@
                 }
             }
 
-            // Contenido
-            if (this.ckeditorInstance && config.contenido) {
-                this.ckeditorInstance.setData(config.contenido);
+            if (this.editorInstance && config.contenido) {
+                this.editorInstance.setData(config.contenido);
             }
 
-            // Márgenes
             if (config.margenes) {
                 document.getElementById('margen_superior').value = config.margenes.superior || 2.0;
                 document.getElementById('margen_inferior').value = config.margenes.inferior || 2.0;
@@ -485,98 +657,128 @@
                 document.getElementById('margen_derecho').value = config.margenes.derecho || 2.5;
             }
 
-            // Página
             if (config.pagina) {
                 document.getElementById('tamano_pagina').value = config.pagina.tamano || 'legal';
                 document.getElementById('orientacion').value = config.pagina.orientacion || 'portrait';
             }
 
-            this.actualizarVistaPrevia();
+            this.actualizarInfo();
         },
 
-        // Actualizar vista previa
-        actualizarVistaPrevia: function() {
+        actualizarInfo: function() {
             const config = this.obtenerConfiguracion();
-            const preview = document.getElementById('preview_page');
+            const isLandscape = config.pagina.orientacion === 'landscape';
+            const orientacionText = isLandscape ? 'Horizontal' : 'Vertical';
 
-            // Actualizar tamaño de página
+            document.getElementById('info_pagina').textContent =
+                `${config.pagina.tamano.toUpperCase()} - ${orientacionText}`;
+            document.getElementById('info_margenes').textContent =
+                `${config.margenes.superior}/${config.margenes.inferior}/${config.margenes.izquierdo}/${config.margenes.derecho} cm`;
+
+            const estadoEncabezado = document.getElementById('info_encabezado_estado');
+            if (estadoEncabezado) {
+                estadoEncabezado.textContent = this.mostrarEncabezado ? 'Incluido' : 'No incluido';
+            }
+        },
+
+        mostrarVistaPrevia: function() {
+            const config = this.obtenerConfiguracion();
+            const modal = new bootstrap.Modal(document.getElementById('modalVistaPrevia{{ $id }}'));
+
+            // Tamaños de página
             const tamanos = {
-                'legal': { w: 216, h: 356 },
-                'a4': { w: 210, h: 297 },
-                'letter': { w: 216, h: 279 },
-                'oficio': { w: 216, h: 330 }
+                'legal': { w: 816, h: 1056 },
+                'a4': { w: 794, h: 1122 },
+                'letter': { w: 816, h: 792 },
+                'oficio': { w: 816, h: 990 }
             };
 
             const dims = tamanos[config.pagina.tamano] || tamanos['legal'];
             const isLandscape = config.pagina.orientacion === 'landscape';
+            const pageWidth = isLandscape ? dims.h : dims.w;
+            const pageHeight = isLandscape ? dims.w : dims.h;
 
-            // Escala para visualización (1mm = 1px aprox)
-            const scale = 1;
-            const width = (isLandscape ? dims.h : dims.w) * scale;
-            const height = (isLandscape ? dims.w : dims.h) * scale;
+            // Configurar documento
+            const docEl = document.getElementById('preview_document_{{ $id }}');
+            docEl.style.width = pageWidth + 'px';
+            docEl.style.minHeight = pageHeight + 'px';
 
-            preview.style.width = width + 'px';
-            preview.style.minHeight = height + 'px';
-
-            // Márgenes (escalados)
-            const ms = config.margenes.superior * scale;
-            const mi = config.margenes.izquierdo * scale;
-            const md = config.margenes.derecho * scale;
-            const marginH = mi + md;
-
-            preview.style.padding = `${ms}px ${md}px ${config.margenes.inferior * scale}px ${mi}px`;
-
-            // Actualizar encabezado
-            const logoEl = document.getElementById('preview_logo');
-            const leyendaEl = document.getElementById('preview_leyenda');
-
-            if (config.encabezado.logo_path) {
-                logoEl.innerHTML = `<img src="${config.encabezado.logo_path}" alt="Logo">`;
+            // Header
+            const headerEl = document.getElementById('preview_doc_header');
+            if (this.mostrarEncabezado) {
+                let headerHTML = '<div style="display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:10px;border-bottom:1px solid #333;margin-bottom:15px;">';
+                if (config.encabezado && config.encabezado.logo_path) {
+                    headerHTML += `<div><img src="${config.encabezado.logo_path}" alt="Logo" style="max-width:80px;max-height:60px;"></div>`;
+                } else {
+                    headerHTML += '<div></div>';
+                }
+                if (config.encabezado && config.encabezado.leyenda) {
+                    headerHTML += `<div style="text-align:right;font-style:italic;font-size:10pt;color:#555;white-space:pre-line;">${config.encabezado.leyenda}</div>`;
+                }
+                headerHTML += '</div>';
+                headerEl.innerHTML = headerHTML;
             } else {
-                logoEl.innerHTML = '';
+                headerEl.innerHTML = '';
             }
 
-            if (config.encabezado.leyenda) {
-                leyendaEl.innerHTML = config.encabezado.leyenda;
+            // Contenido
+            const contentEl = document.getElementById('preview_doc_content');
+            if (this.editorInstance) {
+                contentEl.innerHTML = this.editorInstance.getData();
             } else {
-                leyendaEl.innerHTML = '';
+                contentEl.innerHTML = '<p style="text-align:center;color:#999;">Sin contenido</p>';
             }
 
-            // Actualizar contenido
-            const contentEl = document.getElementById('preview_content');
-            if (config.contenido && config.contenido.trim() !== '') {
-                contentEl.innerHTML = config.contenido;
-            } else {
-                contentEl.innerHTML = '<p class="text-muted text-center">El contenido aparecerá aquí...</p>';
-            }
-
-            // Actualizar info
+            // Info
             const orientacionText = isLandscape ? 'Horizontal' : 'Vertical';
-            document.getElementById('info_pagina').textContent =
-                `${config.pagina.tamano.toUpperCase()} - ${orientacionText}`;
-            document.getElementById('info_margenes').textContent =
-                `Márgenes: ${config.margenes.superior}/${config.margenes.inferior}/${config.margenes.izquierdo}/${config.margenes.derecho} cm`;
+            document.getElementById('preview_doc_info').textContent =
+                `${config.pagina.tamano.toUpperCase()} - ${orientacionText} | Márgenes: ${config.margenes.superior}/${config.margenes.inferior}/${config.margenes.izquierdo}/${config.margenes.derecho} cm`;
+
+            modal.show();
         },
 
-        // Limpiar editor
         limpiar: function() {
-            this.logoBase64 = null;
-            document.getElementById('logo_path').value = '';
-            document.getElementById('logo_container').innerHTML = `
-                <div class="logo-placeholder">
-                    <i class="fas fa-image fa-2x"></i>
-                    <small class="d-block">Logo</small>
-                </div>
-            `;
-            document.getElementById('btn_eliminar_logo').classList.add('d-none');
-            document.getElementById('leyenda_encabezado').value = '';
             document.getElementById('nombre_plantilla').value = '';
 
-            if (this.ckeditorInstance) {
-                this.ckeditorInstance.setData('');
+            const checkEncabezado = document.getElementById('check_incluir_encabezado');
+            const contenedorEncabezado = document.getElementById('contenedor_encabezado');
+
+            this.mostrarEncabezado = {{ $mostrarEncabezado ? 'true' : 'false' }};
+            if (checkEncabezado) checkEncabezado.checked = this.mostrarEncabezado;
+            if (contenedorEncabezado) contenedorEncabezado.style.display = this.mostrarEncabezado ? '' : 'none';
+
+            if (this.mostrarEncabezado) {
+                const logoContainer = document.getElementById('logo_container');
+                const leyendaEl = document.getElementById('leyenda_encabezado');
+
+                if (this.defaultsSistema.logoPath) {
+                    this.logoBase64 = '/' + this.defaultsSistema.logoPath;
+                    document.getElementById('logo_path').value = this.logoBase64;
+                    logoContainer.innerHTML = `<img src="/${this.defaultsSistema.logoPath}" alt="Logo">`;
+                    document.getElementById('btn_eliminar_logo').classList.remove('d-none');
+                } else {
+                    this.logoBase64 = null;
+                    document.getElementById('logo_path').value = '';
+                    logoContainer.innerHTML = `
+                        <div class="logo-placeholder">
+                            <i class="fas fa-image fa-2x"></i>
+                            <small class="d-block">Logo</small>
+                        </div>
+                    `;
+                    document.getElementById('btn_eliminar_logo').classList.add('d-none');
+                }
+
+                if (this.defaultsSistema.leyenda && leyendaEl) {
+                    leyendaEl.value = this.defaultsSistema.leyenda;
+                } else if (leyendaEl) {
+                    leyendaEl.value = '';
+                }
             }
 
-            // Resetear configuración
+            if (this.editorInstance) {
+                this.editorInstance.setData('');
+            }
+
             document.getElementById('margen_superior').value = 2.0;
             document.getElementById('margen_inferior').value = 2.0;
             document.getElementById('margen_izquierdo').value = 2.5;
@@ -584,16 +786,14 @@
             document.getElementById('tamano_pagina').value = 'legal';
             document.getElementById('orientacion').value = 'portrait';
 
-            this.actualizarVistaPrevia();
+            this.actualizarInfo();
         },
 
-        // Guardar nota (método por defecto, puede ser sobrescrito)
         guardarNota: async function(config) {
             console.log('Guardando nota:', config);
             alert('Configure el callback de guardar nota desde el módulo');
         },
 
-        // Guardar plantilla (método por defecto)
         guardarPlantilla: async function(nombre, config) {
             try {
                 const resp = await fetch('/plantillas-documentos', {
@@ -624,22 +824,24 @@
             }
         },
 
-        // Abrir modal
         abrir: function(callbackGuardar, callbackGuardarPlantilla) {
             this.callbackGuardar = callbackGuardar;
             this.callbackGuardarPlantilla = callbackGuardarPlantilla;
-            const modal = new bootstrap.Modal(document.getElementById('{{ $id }}'));
-            modal.show();
+
+            this.modalInstance = new bootstrap.Modal(document.getElementById('{{ $id }}'));
+            this.modalInstance.show();
         },
 
-        // Cerrar modal
         cerrar: function() {
-            const modal = bootstrap.Modal.getInstance(document.getElementById('{{ $id }}'));
-            if (modal) modal.hide();
+            if (this.modalInstance) {
+                this.modalInstance.hide();
+            } else {
+                const modal = bootstrap.Modal.getInstance(document.getElementById('{{ $id }}'));
+                if (modal) modal.hide();
+            }
         }
     };
 
-    // Inicializar cuando el DOM esté listo
     document.addEventListener('DOMContentLoaded', function() {
         window.EditorNotas['{{ $id }}'].init();
     });

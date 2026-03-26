@@ -1,0 +1,123 @@
+/* common.css (placeholder)
+   Archivo base para estilos compartidos. Mantener mismo origen para evitar CORS.
+*/
+
+/* Helper mínimo para tablas y formularios */
+.table th,
+.table td { vertical-align: middle; }
+
+.form-group { margin-bottom: 1rem; }
+
+.card-title { margin: 0; font-weight: 600; }
+
+/* ===== Toastr visibility fixes ===== */
+#toast-container .toast { color: #212529 !important; }
+#toast-container .toast .toast-title,
+#toast-container .toast .toast-message { color: inherit !important; }
+
+#toast-container .toast-warning { background-color: #fff3cd !important; color: #212529 !important; }
+#toast-container .toast-info { background-color: #d1ecf1 !important; color: #0c5460 !important; }
+#toast-container .toast-success { background-color: #d4edda !important; color: #155724 !important; }
+#toast-container .toast-error { background-color: #f8d7da !important; color: #721c24 !important; }
+
+/* ===== Estado badges in usuarios table ===== */
+.badge-estado-activo { background-color: #d4edda; color: #212529; }
+.badge-estado-inactivo { background-color: #f8d7da; color: #212529; }
+
+/* ===== Select2 fixes ===== */
+.select2-container {
+    display: block;
+}
+
+/* Select2 múltiples - altura correcta */
+.select2-container--bootstrap4 .select2-selection--multiple {
+    min-height: 38px !important;
+    height: auto !important;
+    padding: 0 5px !important;
+    border: 1px solid #ced4da;
+    border-radius: 0.25rem;
+}
+
+.select2-container--bootstrap4 .select2-selection--multiple .select2-selection__rendered {
+    padding: 0 !important;
+    margin: 0 !important;
+}
+
+.select2-container--bootstrap4 .select2-selection--multiple .select2-selection__choice {
+    margin-top: 5px !important;
+    margin-bottom: 2px !important;
+    font-size: 0.875rem;
+    padding: 3px 8px;
+    background-color: #e9ecef;
+    border: 1px solid #ced4da;
+    border-radius: 0.2rem;
+    color: #495057;
+}
+
+.select2-container--bootstrap4 .select2-selection--multiple .select2-selection__choice__remove {
+    margin-right: 5px;
+    color: #6c757d;
+}
+
+/* Select2 simples */
+.select2-container--bootstrap4 .select2-selection--single {
+    height: 31px !important;
+    border: 1px solid #ced4da;
+    border-radius: 0.25rem;
+}
+
+.select2-container--bootstrap4 .select2-selection--single .select2-selection__rendered {
+    padding-left: 0.5rem !important;
+    line-height: 29px !important;
+    font-size: 0.875rem;
+}
+
+.select2-container--bootstrap4 .select2-selection__arrow {
+    height: 29px !important;
+    right: 5px !important;
+}
+
+/* Dropdown */
+.select2-dropdown {
+    border: 1px solid #ced4da;
+    border-radius: 0.25rem;
+    font-size: 0.875rem;
+}
+
+.select2-results__option {
+    padding: 8px 12px;
+}
+
+.select2-results__option--selected {
+    background-color: #e9ecef;
+}
+
+.select2-results__option--highlighted {
+    background-color: #0d6efd;
+    color: white;
+}
+
+/* Asegurar que el contenedor de select2 sea visible */
+.select2-container--bootstrap4 {
+    width: 100% !important;
+}
+
+/* Ocultar completamente el select original */
+select.select2-hidden-accessible {
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    padding: 0 !important;
+    margin: -1px !important;
+    overflow: hidden !important;
+    clip: rect(0, 0, 0, 0) !important;
+    white-space: nowrap !important;
+    border: 0 !important;
+    display: none !important;
+    opacity: 0 !important;
+}
+
+/* Resetear estilos de form-control para selects con Select2 */
+select.select2 {
+    display: none;
+}

@@ -53,6 +53,8 @@ use App\Http\Controllers\ConfiguracionController;
 use App\Http\Controllers\HijoController;
 use App\Http\Controllers\MotivoLicenciaController;
 use App\Http\Controllers\NotaJuridicaController;
+use App\Http\Controllers\AdultoMayorController;
+use App\Http\Controllers\ParametrosController;
 use Illuminate\Support\Facades\DB;
 
 // Ruta raíz que redirige al login (fuera de middleware)
@@ -182,6 +184,35 @@ Route::middleware(['check.session'])->group(function () {
         Route::delete('/{id}', [PapController::class, 'destroy'])->name('pap.destroy');
     });
 
+    // Rutas para Adulto Mayor (agrupadas)
+    Route::prefix('adulto-mayor')->middleware('puede.ver')->group(function () {
+        Route::get('/', [AdultoMayorController::class, 'index'])->name('adulto-mayor');
+        Route::get('/filtrar', [AdultoMayorController::class, 'getRegistros'])->name('adulto-mayor.filtrar');
+        Route::get('/exportar', [AdultoMayorController::class, 'exportarExcel'])->name('adulto-mayor.exportar');
+        Route::get('/buscar-paciente', [AdultoMayorController::class, 'buscarPaciente'])->name('adulto-mayor.buscar-paciente');
+        Route::post('/crear-paciente', [AdultoMayorController::class, 'crearPaciente'])->name('adulto-mayor.crear-paciente');
+        Route::get('/medicamentos', [AdultoMayorController::class, 'getMedicamentos'])->name('adulto-mayor.medicamentos');
+        
+        // Adulto Mayor
+        Route::get('/{id}', [AdultoMayorController::class, 'getById'])->name('adulto-mayor.get');
+        Route::post('/', [AdultoMayorController::class, 'store'])->name('adulto-mayor.store');
+        Route::put('/{id}', [AdultoMayorController::class, 'update'])->name('adulto-mayor.update');
+        Route::delete('/{id}', [AdultoMayorController::class, 'destroy'])->name('adulto-mayor.destroy');
+        
+        // Recetas
+        Route::post('/receta', [AdultoMayorController::class, 'storeReceta'])->name('adulto-mayor.receta.store');
+        Route::get('/receta/{id}', [AdultoMayorController::class, 'getReceta'])->name('adulto-mayor.receta.get');
+        Route::put('/receta/{id}', [AdultoMayorController::class, 'updateReceta'])->name('adulto-mayor.receta.update');
+        Route::delete('/receta/{id}', [AdultoMayorController::class, 'destroyReceta'])->name('adulto-mayor.receta.destroy');
+        Route::post('/receta/{id}/verificar', [AdultoMayorController::class, 'verificarReceta'])->name('adulto-mayor.receta.verificar');
+        
+        // Detalles y Entregas
+        Route::post('/entrega', [AdultoMayorController::class, 'registrarEntrega'])->name('adulto-mayor.entrega');
+        Route::delete('/entrega/{id}', [AdultoMayorController::class, 'eliminarEntrega'])->name('adulto-mayor.entrega.eliminar');
+        Route::delete('/detalle/{id}', [AdultoMayorController::class, 'eliminarDetalle'])->name('adulto-mayor.detalle.eliminar');
+        Route::post('/cambiar-medicamento', [AdultoMayorController::class, 'cambiarMedicamento'])->name('adulto-mayor.cambiar-medicamento');
+    });
+
     // Rutas para Informe Personal (agrupadas)
     Route::prefix('informe-personal')->middleware('puede.ver')->group(function () {
         Route::get('/', [InformePersonalController::class, 'index'])->name('informe-personal');
@@ -195,6 +226,7 @@ Route::middleware(['check.session'])->group(function () {
     // Rutas para Informe de Novedades (agrupadas)
     Route::prefix('informe-novedades')->middleware('puede.ver')->group(function () {
         Route::get('/', [InformeNovedadesController::class, 'index'])->name('informe-novedades');
+        Route::get('/buscar', [InformeNovedadesController::class, 'buscar'])->name('informe-novedades.buscar');
         Route::get('/exportar', [InformeNovedadesController::class, 'exportar'])->name('informe-novedades.exportar');
         Route::get('/departamentos', [InformeNovedadesController::class, 'getDepartamentosXGer'])->name('informe-novedades.departamentos');
         Route::get('/servicios', [InformeNovedadesController::class, 'getServiciosXDep'])->name('informe-novedades.servicios');
@@ -411,6 +443,13 @@ Route::middleware(['check.session'])->group(function () {
         Route::get('/historial-personal/{personalId}', [LicenciasController::class, 'getHistorialByPersonalId'])->name('licencias.historial.personal');
     });
 
+    // Informe de Licencias (ruta separada para permisos independientes)
+    Route::prefix('informe-licencias')->middleware('check.session')->group(function () {
+        Route::get('/', [LicenciasController::class, 'informeLicencias2'])->name('licencias.informe');
+        Route::get('/filtrar', [LicenciasController::class, 'filtrarInformeLicencias2'])->name('licencias.informe.filtrar');
+        Route::get('/exportar', [LicenciasController::class, 'exportarInformeLicencias2'])->name('licencias.informe.exportar');
+    });
+
     // Rutas para Feriados (agrupadas)
     Route::prefix('feriados')->middleware('puede.ver')->group(function () {
         Route::get('/', [FeriadoController::class, 'index'])->name('feriados');
@@ -467,6 +506,7 @@ Route::middleware(['check.session'])->group(function () {
         Route::get('/proximo-certificado', [LicenciasController::class, 'obtenerProximoCertificadoMedico'])->name('orden-medicas.proximo-certificado');
         Route::get('/{licencia}', [OrdenMedicaController::class, 'show'])->name('orden-medicas.get');
         Route::get('/{licencia}/imprimir', [OrdenMedicaController::class, 'imprimir'])->name('orden-medicas.imprimir');
+        Route::delete('/{licencia}/imagen', [OrdenMedicaController::class, 'eliminarImagen'])->name('orden-medicas.eliminar-imagen');
         // CRUD de Orden Médicas
         Route::post('/', [OrdenMedicaController::class, 'store'])->name('orden-medicas.store');
         Route::put('/{licencia}', [OrdenMedicaController::class, 'update'])->name('orden-medicas.update');
@@ -478,11 +518,17 @@ Route::middleware(['check.session'])->group(function () {
         Route::get('/', [NotaJuridicaController::class, 'index'])->name('notas-juridicas');
         Route::get('/filtrar', [NotaJuridicaController::class, 'filtrar'])->name('notas-juridicas.filtrar');
         Route::get('/proximo-numero', [NotaJuridicaController::class, 'proximoNumero'])->name('notas-juridicas.proximo-numero');
+        Route::get('/verificar-numero', [NotaJuridicaController::class, 'verificarNumero'])->name('notas-juridicas.verificar-numero');
         Route::get('/buscar-notas', [NotaJuridicaController::class, 'buscarNotas'])->name('notas-juridicas.buscar');
         Route::get('/plantillas', [NotaJuridicaController::class, 'plantillas'])->name('notas-juridicas.plantillas');
         Route::get('/plantillas/{id}', [NotaJuridicaController::class, 'cargarPlantilla'])->name('notas-juridicas.cargar-plantilla');
+        Route::get('/plantillas-drive', [NotaJuridicaController::class, 'listarPlantillasDrive'])->name('notas-juridicas.plantillas-drive');
+        Route::post('/crear-doc-drive', [NotaJuridicaController::class, 'crearDocDrive'])->name('notas-juridicas.crear-doc-drive');
+        Route::get('/exportar/excel', [NotaJuridicaController::class, 'exportarExcel'])->name('notas-juridicas.exportar-excel');
         Route::get('/{id}', [NotaJuridicaController::class, 'show'])->name('notas-juridicas.show');
         Route::get('/{id}/pdf', [NotaJuridicaController::class, 'exportarPdf'])->name('notas-juridicas.pdf');
+        Route::get('/{id}/historial', [NotaJuridicaController::class, 'historial'])->name('notas-juridicas.historial');
+        Route::post('/{id}/novedad', [NotaJuridicaController::class, 'agregarNovedad'])->name('notas-juridicas.agregar-novedad');
         Route::post('/', [NotaJuridicaController::class, 'store'])->name('notas-juridicas.store');
         Route::put('/{id}', [NotaJuridicaController::class, 'update'])->name('notas-juridicas.update');
         Route::delete('/{id}', [NotaJuridicaController::class, 'destroy'])->name('notas-juridicas.destroy');
@@ -612,6 +658,8 @@ Route::middleware(['check.session'])->group(function () {
         Route::post('/leyenda', [ConfiguracionController::class, 'guardarLeyenda'])->name('configuracion.leyenda.guardar');
         Route::get('/leyenda/{id}', [ConfiguracionController::class, 'getLeyenda'])->name('configuracion.leyenda.get');
         Route::delete('/leyenda/{id}', [ConfiguracionController::class, 'eliminarLeyenda'])->name('configuracion.leyenda.eliminar');
+        Route::post('/logo', [ConfiguracionController::class, 'guardarLogo'])->name('configuracion.logo.guardar');
+        Route::post('/logo/restaurar', [ConfiguracionController::class, 'restaurarLogo'])->name('configuracion.logo.restaurar');
     });
 
     // Rutas para Motivos de Licencia (parámetros)
@@ -901,15 +949,40 @@ Route::prefix('api/programacion-personal')->middleware(['check.session'])->group
 // Descarga de TXT importado
 Route::get('/import-horarios/{id}/txt', [ImportHorariosController::class, 'descargar'])->middleware(['check.session']);
 
-// Rutas para Gestor de Plantillas de Documentos (sistema multi-módulo)
+// API para obtener módulo por URL (sin autenticación completa, solo sesión básica)
+Route::get('/api/modulo/url/{url}', function($url) {
+    $modulo = \App\Models\Modulo::where('url', $url)->first();
+    if ($modulo) {
+        return response()->json(['success' => true, 'modulo_id' => $modulo->IdModulo, 'nombre' => $modulo->NombreModulo]);
+    }
+    return response()->json(['success' => false, 'message' => 'Módulo no encontrado']);
+})->middleware(['check.session']);
+
+// Rutas auxiliares de plantillas (sin verificación de permisos, solo sesión)
+Route::prefix('plantillas-documentos')->middleware(['check.session'])->group(function () {
+    Route::get('/por-modulo', [App\Http\Controllers\PlantillaDocumentoController::class, 'porModulo'])->name('plantillas-documentos.por-modulo');
+    Route::get('/defaults', [App\Http\Controllers\PlantillaDocumentoController::class, 'defaults'])->name('plantillas-documentos.defaults');
+    Route::post('/', [App\Http\Controllers\PlantillaDocumentoController::class, 'store'])->name('plantillas-documentos.store');
+});
+
+// Rutas para Gestor de Plantillas de Documentos (sistema multi-módulo) - requieren permisos
 Route::prefix('plantillas-documentos')->middleware(['check.session', 'puede.ver'])->group(function () {
     Route::get('/', [App\Http\Controllers\PlantillaDocumentoController::class, 'index'])->name('plantillas-documentos');
     Route::get('/filtrar', [App\Http\Controllers\PlantillaDocumentoController::class, 'filtrar'])->name('plantillas-documentos.filtrar');
-    Route::get('/por-modulo', [App\Http\Controllers\PlantillaDocumentoController::class, 'porModulo'])->name('plantillas-documentos.por-modulo');
-    Route::get('/defaults', [App\Http\Controllers\PlantillaDocumentoController::class, 'defaults'])->name('plantillas-documentos.defaults');
     Route::get('/{id}', [App\Http\Controllers\PlantillaDocumentoController::class, 'show'])->name('plantillas-documentos.show');
-    Route::post('/', [App\Http\Controllers\PlantillaDocumentoController::class, 'store'])->name('plantillas-documentos.store');
     Route::put('/{id}', [App\Http\Controllers\PlantillaDocumentoController::class, 'update'])->name('plantillas-documentos.update');
     Route::delete('/{id}', [App\Http\Controllers\PlantillaDocumentoController::class, 'destroy'])->name('plantillas-documentos.destroy');
     Route::post('/{id}/duplicar', [App\Http\Controllers\PlantillaDocumentoController::class, 'duplicar'])->name('plantillas-documentos.duplicar');
+});
+
+// Rutas para Google OAuth
+Route::get('/google-authorize', [App\Http\Controllers\GoogleOAuthController::class, 'startAuthorization']);
+Route::get('/oauth2callback', [App\Http\Controllers\GoogleOAuthController::class, 'callback']);
+
+// Rutas para Parámetros (ABM de tablas del sistema)
+Route::prefix('parametros')->middleware(['check.session', 'puede.ver'])->group(function () {
+    Route::get('/', [ParametrosController::class, 'index'])->name('parametros');
+    Route::get('/select', [ParametrosController::class, 'getSelect'])->name('parametros.select');
+    Route::post('/guardar', [ParametrosController::class, 'guardar'])->name('parametros.guardar');
+    Route::delete('/eliminar', [ParametrosController::class, 'eliminar'])->name('parametros.eliminar');
 });

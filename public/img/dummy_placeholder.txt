@@ -1,0 +1,4 @@
+<!-- Placeholder para imagen dummy.png -->
+<!-- Para que el módulo funcione correctamente, necesita la imagen dummy.png -->
+<!-- Puede usar cualquier imagen placeholder de 200x200 píxeles -->
+<!-- Ejemplo: crear una imagen con el texto "Sin foto" -->

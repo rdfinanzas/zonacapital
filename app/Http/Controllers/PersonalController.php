@@ -27,6 +27,7 @@ use App\Models\JornadaXEmp;
 use App\Models\Agrupamiento;
 use App\Models\Categoria;
 use App\Models\Cargo;
+use App\Models\ClasificacionPersonal;
 use App\Helpers\PermisoHelper;
 use App\Helpers\LogHelper;
 use Illuminate\Support\Facades\DB;
@@ -48,6 +49,9 @@ class PersonalController extends Controller
         // Get permissions for this view
         $permisos = PermisoHelper::obtenerPermisos($usuarioId, 'personal');
 
+        // Agregar permiso extra para vista
+        $permisos['todo_personal'] = isset($permisos['todo_personal']) && $permisos['todo_personal'];
+
         // Get all data for dropdown filters
         $gerencias = Gerencia::orderBy('Gerencia')->get();
         $profesiones = Profesion::orderBy('profesion')->get();
@@ -62,6 +66,7 @@ class PersonalController extends Controller
             ->get(['idEmpleado', 'Apellido', 'Nombre', 'Legajo']);
 
         $cargos = Cargo::orderBy('cargo')->get(['idCargo', 'cargo']);
+        $clasificaciones = ClasificacionPersonal::orderBy('orden')->get();
 
         return view('personal', [
             'permisos' => $permisos,
@@ -70,7 +75,8 @@ class PersonalController extends Controller
             'funciones' => $funciones,
             'estados' => $estados,
             'jefes' => $jefes,
-            'cargos' => $cargos
+            'cargos' => $cargos,
+            'clasificaciones' => $clasificaciones
         ]);
     }
 
@@ -138,8 +144,26 @@ class PersonalController extends Controller
         $estado = $request->input('estado', 1);
         $jefe = $request->input('jefe', 0);
         $cargo = $request->input('cargo', 0);
+        $clasificacion = $request->input('clasificacion', 0);
         $pagina = $request->input('pagina', 1);
         $porPagina = $request->input('porPagina', 10);
+
+        // Verificar permiso para ver todo el personal
+        $usuarioId = session('usuario_id');
+        $permisos = PermisoHelper::obtenerPermisos($usuarioId, 'personal');
+        $verTodoElPersonal = isset($permisos['todo_personal']) && $permisos['todo_personal'];
+
+        // Si no tiene permiso para ver todo, filtrar por su servicio
+        $filtroServicio = null;
+        if (!$verTodoElPersonal) {
+            $personalId = DB::table('usuarios')->where('IdUsuario', $usuarioId)->value('Personal_Id');
+            if ($personalId) {
+                $usuario = Empleado::find($personalId);
+                if ($usuario && $usuario->idServicio) {
+                    $filtroServicio = $usuario->idServicio;
+                }
+            }
+        }
 
         // Build query with relationships
         $query = Empleado::with([
@@ -194,7 +218,13 @@ class PersonalController extends Controller
         }
 
         if ($servicio > 0) {
-            $query->where('idServicio', $servicio);
+            // Buscar empleados con este servicio en idServicio (legacy) O en empleado_servicio (nuevo)
+            $query->where(function ($q) use ($servicio) {
+                $q->where('idServicio', $servicio)
+                  ->orWhereHas('serviciosActivos', function ($sq) use ($servicio) {
+                      $sq->where('servicio_id', $servicio);
+                  });
+            });
         }
 
         if ($sector > 0) {
@@ -205,12 +235,26 @@ class PersonalController extends Controller
             $query->where('Estado', $estado);
         }
 
+        // Aplicar filtro por servicio si el usuario no tiene permiso para ver todo
+        if ($filtroServicio) {
+            $query->where(function ($q) use ($filtroServicio) {
+                $q->where('idServicio', $filtroServicio)
+                  ->orWhereHas('serviciosActivos', function ($sq) use ($filtroServicio) {
+                      $sq->where('servicio_id', $filtroServicio);
+                  });
+            });
+        }
+
         if ($jefe > 0) {
             $query->where('IdEmpleado2', $jefe);
         }
 
         if ($cargo > 0) {
             $query->where('idCargo', $cargo);
+        }
+
+        if ($clasificacion > 0) {
+            $query->where('idClasificacion', $clasificacion);
         }
 
         // Order by apellido and nombre
@@ -360,6 +404,7 @@ class PersonalController extends Controller
             'profesion_id' => $empleado->idProfesion,
             'funcion' => $empleado->funcion->Funcion ?? 'Sin definir',
             'funcion_id' => $empleado->Funcion,
+            'idClasificacion' => $empleado->idClasificacion,
             'tipo_tarea' => $empleado->instruccion->instruccion ?? 'Sin definir',
             'tipo_tarea_id' => $empleado->idInstrucion,
             'tipo_relacion' => $empleado->tipoRelacion->Relacion ?? 'Sin definir',
@@ -1088,19 +1133,23 @@ class PersonalController extends Controller
             return response()->json(['jefe' => null]);
         }
 
-        // Buscar el empleado activo con idCargo = 2 (Jefe de Servicio) asignado a este servicio.
-        // Verifica en el campo idServicio (legacy) y en la tabla pivote empleado_servicio.
-        // Solo devuelve UN jefe por servicio (first() garantiza unicidad).
-        // Si no hay jefe asignado, devuelve null.
-        $jefe = Empleado::where('Estado', 1)
-            ->where('idCargo', 2)
-            ->where(function($query) use ($servicioId) {
-                $query->where('idServicio', $servicioId)
-                      ->orWhereHas('serviciosActivos', function($q) use ($servicioId) {
-                          $q->where('servicio_id', $servicioId)->where('activo', 1);
-                      });
-            })
-            ->first(['idEmpleado', 'Apellido', 'Nombre', 'Legajo']);
+        // Buscar el jefe del servicio en empleado_servicio donde es_jefe = true
+        // Un servicio tiene UN SOLO JEFE, pero un empleado puede ser jefe de múltiples servicios
+        $jefeId = DB::table('empleado_servicio')
+            ->where('servicio_id', $servicioId)
+            ->where('es_jefe', true)
+            ->where('activo', true)
+            ->value('empleado_id');
+
+        // Si no hay jefe en empleado_servicio, buscar por legacy (idCargo=2 e idServicio)
+        if (!$jefeId) {
+            $jefe = Empleado::where('Estado', 1)
+                ->where('idCargo', 2)
+                ->where('idServicio', $servicioId)
+                ->first(['idEmpleado', 'Apellido', 'Nombre', 'Legajo']);
+        } else {
+            $jefe = Empleado::find($jefeId, ['idEmpleado', 'Apellido', 'Nombre', 'Legajo']);
+        }
 
         if ($jefe) {
             return response()->json([
@@ -1274,6 +1323,7 @@ class PersonalController extends Controller
         $empleado->Celular = $request->celular ?? '';
         $empleado->idProfesion = $request->profesion ?? 1;
         $empleado->Funcion = $request->funcion ?? 1;
+        $empleado->idClasificacion = $request->idClasificacion ?: null;
         $empleado->idInstrucion = $request->instruccion ?? $request->tipo_tarea ?? 1;  // Aceptar ambos nombres
         $empleado->idTipoRelacion = $request->relacion_laboral ?? $request->relacion ?? 1;
         $empleado->idGerencia = $request->gerencia ?? 1;
@@ -1355,6 +1405,7 @@ class PersonalController extends Controller
         $empleado->Celular = $request->celular ?? '';
         $empleado->idProfesion = $request->profesion ?? 1;
         $empleado->Funcion = $request->funcion ?? 1;
+        $empleado->idClasificacion = $request->idClasificacion ?: null;
         $empleado->idInstrucion = $request->instruccion ?? $request->tipo_tarea ?? 1;  // Aceptar ambos nombres
         $empleado->idTipoRelacion = $request->relacion_laboral ?? $request->relacion ?? 1;
         $empleado->idGerencia = $request->gerencia ?? 1;
@@ -1649,6 +1700,7 @@ class PersonalController extends Controller
                     $q->where('Apellido', 'like', '%' . $query . '%')
                       ->orWhere('Nombre', 'like', '%' . $query . '%')
                       ->orWhere('Legajo', 'like', '%' . $query . '%')
+                      ->orWhere('DNI', 'like', '%' . $query . '%')
                       ->orWhereRaw("CONCAT(Apellido, ', ', Nombre) LIKE ?", ['%' . $query . '%']);
                 })
                 ->orderBy('Apellido')
@@ -1660,8 +1712,8 @@ class PersonalController extends Controller
             foreach ($empleados as $emp) {
                 $results[] = [
                     'id' => $emp->idEmpleado,
-                    'value' => $emp->Apellido . ', ' . $emp->Nombre . ' (Leg: ' . $emp->Legajo . ')',
-                    'tokens' => [$emp->Apellido, $emp->Nombre, $emp->Legajo]
+                    'value' => $emp->Apellido . ', ' . $emp->Nombre . ' (DNI: ' . $emp->DNI . ' - Leg: ' . $emp->Legajo . ')',
+                    'tokens' => [$emp->Apellido, $emp->Nombre, $emp->Legajo, $emp->DNI]
                 ];
             }
 
@@ -1723,17 +1775,21 @@ class PersonalController extends Controller
 
                 // Si no hay certificador en el pivot, buscar el jefe del servicio
                 if (!$certificadorId) {
-                    $jefe = Empleado::where('Estado', 1)
-                        ->where('idCargo', 2)
-                        ->where(function($query) use ($s) {
-                            $query->where('idServicio', $s->idServicio)
-                                  ->orWhereHas('serviciosActivos', function($q) use ($s) {
-                                      $q->where('servicio_id', $s->idServicio);
-                                  });
-                        })
-                        ->first(['idEmpleado']);
+                    // Buscar el jefe del servicio (donde es_jefe = true)
+                    $certificadorId = DB::table('empleado_servicio')
+                        ->where('servicio_id', $s->idServicio)
+                        ->where('es_jefe', true)
+                        ->where('activo', true)
+                        ->value('empleado_id');
 
-                    $certificadorId = $jefe ? $jefe->idEmpleado : $empleado->idCertifica;
+                    // Fallback: buscar por legacy
+                    if (!$certificadorId) {
+                        $jefe = Empleado::where('Estado', 1)
+                            ->where('idCargo', 2)
+                            ->where('idServicio', $s->idServicio)
+                            ->first(['idEmpleado']);
+                        $certificadorId = $jefe ? $jefe->idEmpleado : $empleado->idCertifica;
+                    }
                 }
 
                 return [

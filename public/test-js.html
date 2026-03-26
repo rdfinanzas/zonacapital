@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test JavaScript</title>
+</head>
+<body>
+    <h1>Test de JavaScript</h1>
+    <p>Abre la consola del navegador para ver los logs.</p>
+
+    <!-- jQuery -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+
+    <!-- SweetAlert2 -->
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11.7.32/dist/sweetalert2.all.min.js"></script>
+
+    <!-- API Laravel -->
+    <script src="js/api-laravel.js"></script>
+
+    <script>
+        $(document).ready(function() {
+            console.log('jQuery cargado:', typeof $ !== 'undefined');
+            console.log('SweetAlert2 cargado:', typeof Swal !== 'undefined');
+            console.log('apiLaravel cargado:', typeof apiLaravel !== 'undefined');
+
+            alert('Test JavaScript ejecutándose correctamente');
+
+            if (typeof apiLaravel !== 'undefined') {
+                console.log('apiLaravel function:', apiLaravel);
+            }
+        });
+    </script>
+</body>
+</html>

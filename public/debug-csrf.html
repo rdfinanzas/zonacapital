@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Debug Token CSRF</title>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+</head>
+<body>
+    <h1>Debug Token CSRF</h1>
+    <div id="result"></div>
+
+    <script>
+        // Obtener token CSRF de la página principal
+        fetch('/registros-dengue')
+            .then(response => response.text())
+            .then(html => {
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(html, 'text/html');
+                const csrfToken = doc.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+
+                document.getElementById('result').innerHTML = `
+                    <h3>Token CSRF encontrado: ${csrfToken}</h3>
+                    <button onclick="testWithToken('${csrfToken}')">Test PUT con token correcto</button>
+                `;
+            })
+            .catch(error => {
+                document.getElementById('result').innerHTML = `Error: ${error}`;
+            });
+
+        function testWithToken(token) {
+            const formData = new FormData();
+            formData.append('nombre', 'Test Correcto');
+            formData.append('dni', '99999999');
+            formData.append('_method', 'PUT');
+
+            fetch('/registros-dengue/1', {
+                method: 'POST',
+                body: formData,
+                headers: {
+                    'X-CSRF-TOKEN': token
+                }
+            })
+            .then(response => {
+                console.log('Status:', response.status);
+                return response.text();
+            })
+            .then(data => {
+                console.log('Response:', data);
+                document.getElementById('result').innerHTML += `
+                    <div style="margin-top: 20px;">
+                        <h4>Respuesta del servidor:</h4>
+                        <pre style="background: #f5f5f5; padding: 10px; max-height: 300px; overflow: auto;">${data}</pre>
+                    </div>
+                `;
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                document.getElementById('result').innerHTML += `<div>Error: ${error}</div>`;
+            });
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Edición Registro Dengue</title>
+    <meta name="csrf-token" content="WKYrdl45ThS2NgRpRlBhwFdJso6NtzpKwEMWyN7g">
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }
+        .success { background-color: #d4edda; border-color: #c3e6cb; }
+        .error { background-color: #f8d7da; border-color: #f5c6cb; }
+        .pending { background-color: #fff3cd; border-color: #ffeaa7; }
+        .result { margin-top: 10px; padding: 10px; border-radius: 3px; }
+        button { padding: 8px 16px; margin: 5px; cursor: pointer; }
+        pre { background: #f8f9fa; padding: 10px; border-radius: 3px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <h1>Test de Edición de Registros Dengue</h1>
+
+    <div class="test-section">
+        <h3>1. Test GET - Obtener registro para editar</h3>
+        <button onclick="testGetRegistro()">Probar GET Registro</button>
+        <div id="result-get"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>2. Test PUT - Actualizar registro</h3>
+        <button onclick="testUpdateRegistro()">Probar UPDATE Registro</button>
+        <div id="result-update"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>3. Test PUT con FormData - Simular formulario real</h3>
+        <button onclick="testUpdateConFormData()">Probar UPDATE con FormData</button>
+        <div id="result-formdata"></div>
+    </div>
+
+    <script>
+        function testGetRegistro() {
+            const resultDiv = $('#result-get');
+            resultDiv.html('<div class="result pending">Probando GET...</div>');
+
+            $.ajax({
+                url: '/registros-dengue/1',
+                type: 'GET',
+                headers: {
+                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                },
+                success: function(response) {
+                    resultDiv.html(`
+                        <div class="result success">
+                            <strong>✅ GET exitoso</strong>
+                            <pre>${JSON.stringify(response, null, 2)}</pre>
+                        </div>
+                    `);
+                },
+                error: function(xhr, status, error) {
+                    resultDiv.html(`
+                        <div class="result error">
+                            <strong>❌ Error en GET</strong>
+                            <p>Status: ${xhr.status}</p>
+                            <p>Error: ${error}</p>
+                            <pre>${xhr.responseText}</pre>
+                        </div>
+                    `);
+                }
+            });
+        }
+
+        function testUpdateRegistro() {
+            const resultDiv = $('#result-update');
+            resultDiv.html('<div class="result pending">Probando UPDATE...</div>');
+
+            const datos = {
+                nombre: 'Test Usuario Actualizado',
+                dni: '12345678',
+                sexo: 'M',
+                _token: $('meta[name="csrf-token"]').attr('content'),
+                _method: 'PUT'
+            };
+
+            $.ajax({
+                url: '/registros-dengue/1',
+                type: 'POST', // Laravel method spoofing requires POST
+                data: datos,
+                headers: {
+                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                },
+                success: function(response) {
+                    resultDiv.html(`
+                        <div class="result success">
+                            <strong>✅ UPDATE exitoso</strong>
+                            <pre>${JSON.stringify(response, null, 2)}</pre>
+                        </div>
+                    `);
+                },
+                error: function(xhr, status, error) {
+                    resultDiv.html(`
+                        <div class="result error">
+                            <strong>❌ Error en UPDATE</strong>
+                            <p>Status: ${xhr.status}</p>
+                            <p>Error: ${error}</p>
+                            <p>Response: ${xhr.responseText}</p>
+                            <pre>Headers enviados: ${JSON.stringify(datos, null, 2)}</pre>
+                        </div>
+                    `);
+                }
+            });
+        }
+
+        function testUpdateConFormData() {
+            const resultDiv = $('#result-formdata');
+            resultDiv.html('<div class="result pending">Probando UPDATE con FormData...</div>');
+
+            const formData = new FormData();
+            formData.append('nombre', 'Test FormData Usuario');
+            formData.append('dni', '87654321');
+            formData.append('sexo', 'F');
+            formData.append('_method', 'PUT');
+            formData.append('_token', $('meta[name="csrf-token"]').attr('content'));
+
+            $.ajax({
+                url: '/registros-dengue/1',
+                type: 'POST',
+                data: formData,
+                processData: false,
+                contentType: false,
+                headers: {
+                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                },
+                success: function(response) {
+                    resultDiv.html(`
+                        <div class="result success">
+                            <strong>✅ UPDATE con FormData exitoso</strong>
+                            <pre>${JSON.stringify(response, null, 2)}</pre>
+                        </div>
+                    `);
+                },
+                error: function(xhr, status, error) {
+                    let errorDetail = xhr.responseText;
+                    try {
+                        const errorJson = JSON.parse(xhr.responseText);
+                        errorDetail = JSON.stringify(errorJson, null, 2);
+                    } catch(e) {
+                        // responseText no es JSON válido
+                    }
+
+                    resultDiv.html(`
+                        <div class="result error">
+                            <strong>❌ Error en UPDATE con FormData</strong>
+                            <p>Status: ${xhr.status} - ${error}</p>
+                            <p><strong>Contenido de la respuesta:</strong></p>
+                            <pre>${errorDetail}</pre>
+                            ${xhr.responseText.includes('<') ? '<p><strong>⚠️ El servidor está devolviendo HTML en lugar de JSON</strong></p>' : ''}
+                        </div>
+                    `);
+                }
+            });
+        }
+
+        // Ejecutar test inicial al cargar la página
+        $(document).ready(function() {
+            console.log('Tests de edición dengue cargados');
+        });
+    </script>
+</body>
+</html>

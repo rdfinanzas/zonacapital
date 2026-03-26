@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Direct Form Dengue</title>
+    <meta name="csrf-token" content="test">
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; }
+        button { padding: 10px 15px; margin: 5px; background: #007bff; color: white; border: none; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        #result { background: #f8f9fa; padding: 10px; margin: 10px 0; border-left: 4px solid #007bff; }
+    </style>
+</head>
+<body>
+    <h1>Prueba Directa del Formulario de Dengue</h1>
+
+    <div class="section">
+        <h3>1. Test de acceso a la página</h3>
+        <button onclick="testAcceso()">Probar acceso a /registros-dengue</button>
+        <div id="resultado-acceso"></div>
+    </div>
+
+    <div class="section">
+        <h3>2. Test del endpoint de guardado</h3>
+        <button onclick="testGuardar()">Probar guardar registro</button>
+        <div id="resultado-guardar"></div>
+    </div>
+
+    <div class="section">
+        <h3>3. Test de búsqueda de DNI</h3>
+        <button onclick="testBuscarDNI()">Probar buscar DNI</button>
+        <div id="resultado-dni"></div>
+    </div>
+
+    <div id="result"></div>
+
+    <script>
+        function mostrarResultado(selector, titulo, data) {
+            $(selector).html('<h4>' + titulo + '</h4><pre>' + JSON.stringify(data, null, 2) + '</pre>');
+        }
+
+        function testAcceso() {
+            $.get('http://127.0.0.1:8000/registros-dengue')
+                .done(function(data) {
+                    mostrarResultado('#resultado-acceso', 'Éxito - Página accesible', 'La página se cargó correctamente');
+                })
+                .fail(function(xhr) {
+                    const error = {
+                        status: xhr.status,
+                        statusText: xhr.statusText,
+                        response: xhr.responseText.substring(0, 500) + '...'
+                    };
+                    mostrarResultado('#resultado-acceso', 'Error de acceso', error);
+                });
+        }
+
+        function testGuardar() {
+            const datos = {
+                dni: '12345678',
+                apellido_nombre: 'PACIENTE PRUEBA',
+                celular: '123456789',
+                sexo: '0',
+                fecha_nacimiento: '1990-01-01',
+                domicilio: 'Calle Falsa 123',
+                departamento: 'Capital',
+                localidad: 'Corrientes',
+                barrio: 'Centro',
+                consulta: '2024-11-27',
+                efector_id: 1,
+                region_id: 1,
+                semana: 48,
+                _token: 'test-token'
+            };
+
+            $.ajax({
+                url: 'http://127.0.0.1:8000/registros-dengue',
+                method: 'POST',
+                data: datos,
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            })
+            .done(function(response) {
+                mostrarResultado('#resultado-guardar', 'Éxito al guardar', response);
+            })
+            .fail(function(xhr) {
+                const error = {
+                    status: xhr.status,
+                    statusText: xhr.statusText,
+                    response: xhr.responseText
+                };
+                mostrarResultado('#resultado-guardar', 'Error al guardar', error);
+            });
+        }
+
+        function testBuscarDNI() {
+            $.ajax({
+                url: 'http://127.0.0.1:8000/registros-dengue/buscar-dni',
+                method: 'GET',
+                data: { dni: '12345678' }
+            })
+            .done(function(response) {
+                mostrarResultado('#resultado-dni', 'Éxito búsqueda DNI', response);
+            })
+            .fail(function(xhr) {
+                const error = {
+                    status: xhr.status,
+                    statusText: xhr.statusText,
+                    response: xhr.responseText
+                };
+                mostrarResultado('#resultado-dni', 'Error búsqueda DNI', error);
+            });
+        }
+    </script>
+</body>
+</html>

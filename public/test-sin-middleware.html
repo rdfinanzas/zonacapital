@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Sin Middleware</title>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .test-box { margin: 15px 0; padding: 15px; border: 1px solid #ccc; border-radius: 5px; }
+        .success { background-color: #d4edda; border-color: #c3e6cb; }
+        .error { background-color: #f8d7da; border-color: #f5c6cb; }
+        button { padding: 8px 16px; margin: 5px; }
+        pre { background: #f8f9fa; padding: 10px; border-radius: 3px; overflow-x: auto; font-size: 12px; max-height: 300px; }
+    </style>
+</head>
+<body>
+    <h1>Test Funcionalidad Sin Middleware</h1>
+
+    <div class="test-box">
+        <h3>Test 1: Cargar vista principal</h3>
+        <button onclick="testVista()">Probar Vista Principal</button>
+        <div id="result-vista"></div>
+    </div>
+
+    <div class="test-box">
+        <h3>Test 2: Obtener un registro</h3>
+        <button onclick="testGet()">Probar GET Registro</button>
+        <div id="result-get"></div>
+    </div>
+
+    <div class="test-box">
+        <h3>Test 3: Actualizar registro</h3>
+        <button onclick="testUpdate()">Probar UPDATE</button>
+        <div id="result-update"></div>
+    </div>
+
+    <script>
+        function testVista() {
+            const resultDiv = $('#result-vista');
+            resultDiv.html('Probando...');
+
+            fetch('/test-dengue-sin-middleware')
+            .then(response => response.text())
+            .then(data => {
+                if (data.includes('form_main') || data.includes('registros-dengue')) {
+                    resultDiv.html('<div class="success">✅ Vista cargada correctamente</div>');
+                } else if (data.includes('error')) {
+                    resultDiv.html('<div class="error">❌ Error: <pre>' + data + '</pre></div>');
+                } else {
+                    resultDiv.html('<div class="error">❌ Respuesta inesperada: <pre>' + data.substring(0, 500) + '</pre></div>');
+                }
+            })
+            .catch(error => {
+                resultDiv.html('<div class="error">❌ Error: ' + error.message + '</div>');
+            });
+        }
+
+        function testGet() {
+            const resultDiv = $('#result-get');
+            resultDiv.html('Probando GET...');
+
+            fetch('/test-get-sin-middleware/7')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    resultDiv.html('<div class="success">✅ GET exitoso: <pre>' + JSON.stringify(data, null, 2) + '</pre></div>');
+                } else {
+                    resultDiv.html('<div class="error">❌ GET falló: <pre>' + JSON.stringify(data, null, 2) + '</pre></div>');
+                }
+            })
+            .catch(error => {
+                resultDiv.html('<div class="error">❌ Error en GET: ' + error.message + '</div>');
+            });
+        }
+
+        function testUpdate() {
+            const resultDiv = $('#result-update');
+            resultDiv.html('Probando UPDATE...');
+
+            const formData = new FormData();
+            formData.append('nombre', 'Test Update ' + new Date().getTime());
+            formData.append('dni', '12345678');
+            formData.append('_method', 'PUT');
+
+            fetch('/test-update-sin-middleware/7', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => {
+                console.log('Response status:', response.status);
+                console.log('Content-Type:', response.headers.get('content-type'));
+                return response.text();
+            })
+            .then(text => {
+                console.log('Raw response:', text);
+                try {
+                    return JSON.parse(text);
+                } catch(e) {
+                    throw new Error('No es JSON válido: ' + text.substring(0, 200));
+                }
+            })
+            .then(data => {
+                if (data.success) {
+                    resultDiv.html('<div class="success">✅ UPDATE exitoso: ' + data.message + '</div>');
+                } else {
+                    resultDiv.html('<div class="error">❌ UPDATE falló: <pre>' + JSON.stringify(data, null, 2) + '</pre></div>');
+                }
+            })
+            .catch(error => {
+                resultDiv.html('<div class="error">❌ Error en UPDATE: ' + error.message + '</div>');
+            });
+        }
+    </script>
+</body>
+</html>

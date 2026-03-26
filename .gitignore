@@ -1,0 +1,51 @@
+/node_modules
+/public/build
+/public/hot
+/public/storage
+/storage/*.key
+/vendor
+.env
+.env.backup
+.env.production
+.phpunit.result.cache
+Homestead.json
+Homestead.yaml
+auth.json
+npm-debug.log
+yarn-error.log
+/.fleet
+/.idea
+/.vscode
+
+# Archivos SQL grandes
+database/zonacap_zona(3).sql
+database/zoncap_zonacap(1).sql
+
+# Archivos temporales y de debug
+*.jpeg
+*.pdf
+check_*.php
+debug_*.php
+test_*.php
+fix_*.php
+clean_*.php
+create_*.php
+migrar_*.php
+explorar_*.php
+add_*.php
+
+# Directorios temporales
+zona_capital/
+tmpclaude*-cwd/
+
+# Archivos de documentación temporal
+session-ses_*.md
+estructura_base_datos.txt
+mysql_config.txt
+htaccess_fix.txt
+
+# Archivos con credenciales OAuth
+public/get_refresh_token.php
+public/oauth2callback.php
+get_refresh_token.js
+get_refresh_token.php

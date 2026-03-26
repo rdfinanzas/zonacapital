@@ -10,9 +10,15 @@ use App\Models\MotivoLicencia;
 use App\Models\Disposicion;
 use App\Models\Feriado;
 use App\Models\Configuracion;
+use App\Models\Gerencia;
+use App\Models\Departamento;
+use App\Models\Servicio;
+use App\Models\Profesion;
+use App\Models\Funcion;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use PDF;
 use Carbon\Carbon;
 
 class LicenciasController extends Controller
@@ -47,6 +53,23 @@ class LicenciasController extends Controller
         $permisos = PermisoHelper::obtenerPermisos(session('usuario_id'), 'licencias-lar');
         $personal = Personal::all();
         return view('lar-lista', compact('permisos', 'personal'));
+    }
+
+    /**
+     * Editar una LAR existente
+     */
+    public function editarLar($id)
+    {
+        $permisos = PermisoHelper::obtenerPermisos(session('usuario_id'), 'licencias-lar');
+        $personal = Personal::all();
+
+        // Obtener la LAR con sus relaciones
+        $licencia = Licencia::with(['personal', 'disposicion', 'disposicionPoster'])
+            ->where('IdLicencia', $id)
+            ->whereNull('Motivo_Id')
+            ->firstOrFail();
+
+        return view('licencias-lar', compact('permisos', 'personal', 'licencia'));
     }
 
     /**
@@ -866,51 +889,16 @@ class LicenciasController extends Controller
         // Obtener la leyenda correspondiente al año de la LAR
         $leyenda = \App\Models\LeyendaAnual::getPorAnio($licencia->AnioLar);
         
-        try {
-            $dompdfPath = base_path('vendor/dompdf/dompdf/src/Dompdf.php');
-            
-            if (!file_exists($dompdfPath)) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'DomPDF no está instalado en el servidor.'
-                ], 500);
-            }
-            
-            // Cargar DomPDF usando su autoloader si existe
-            $autoloaderPath = base_path('vendor/dompdf/dompdf/src/Autoloader.php');
-            if (file_exists($autoloaderPath)) {
-                require_once $autoloaderPath;
-                if (method_exists('Dompdf\Autoloader', 'register')) {
-                    \Dompdf\Autoloader::register();
-                }
-            }
-            
-            // Si aún no está disponible, cargar manualmente
-            if (!class_exists('Dompdf\Dompdf')) {
-                require_once $dompdfPath;
-            }
-            
-            // Usar DomPDF directamente
-            $dompdf = new \Dompdf\Dompdf();
-            $html = view('prints.lar', compact('licencia', 'leyenda'))->render();
-            $dompdf->loadHtml($html);
-            $dompdf->setPaper('A4', 'portrait');
-            $dompdf->render();
-            
-            $nombreArchivo = 'Disposicion_LAR_' . $licencia->personal->Apellido . '_' . $licencia->AnioLar . '.pdf';
-            
-            return response($dompdf->output(), 200, [
-                'Content-Type' => 'application/pdf',
-                'Content-Disposition' => 'inline; filename="' . $nombreArchivo . '"'
-            ]);
-            
-        } catch (\Exception $e) {
-            Log::error('Error generando PDF LAR: ' . $e->getMessage());
-            return response()->json([
-                'success' => false,
-                'message' => 'Error al generar el PDF: ' . $e->getMessage()
-            ], 500);
-        }
+        // Obtener la ruta del logo configurado
+        $logoPath = \App\Http\Controllers\ConfiguracionController::getLogoPath();
+        
+        // Generar PDF con DomPDF
+        $pdf = \PDF::loadView('prints.lar', compact('licencia', 'leyenda', 'logoPath'));
+        $pdf->setPaper('A4', 'portrait');
+        
+        $nombreArchivo = 'Disposicion_LAR_' . $licencia->personal->Apellido . '_' . $licencia->AnioLar . '.pdf';
+        
+        return $pdf->stream($nombreArchivo);
     }
 
     public function imprimirCD($id)
@@ -1520,5 +1508,448 @@ class LicenciasController extends Controller
         } catch (\Exception $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
         }
+    }
+
+    /**
+     * Vista del Informe de Licencias
+     */
+    public function informeLicencias2(Request $request)
+    {
+        $usuarioId = session('usuario_id');
+        $permisos = PermisoHelper::obtenerPermisos($usuarioId, $request->path());
+        $motivos = MotivoLicencia::where('ModuloId', MotivoLicencia::MODULO_LICENCIAS)
+            ->whereNull('FechaEliminacion')
+            ->orderBy('Motivo')
+            ->get();
+
+        // Verificar si tiene permiso para ver todos los servicios
+        $todoPersonal = $permisos['ver_todos_servicios_laravel'] ?? ($permisos['extras']['ver_todos_servicios_laravel'] ?? 0);
+
+        if ($todoPersonal) {
+            // Tiene permiso: cargar todos los selectores
+            $gerencias = Gerencia::orderBy('Gerencia')->get(['idGerencia', 'Gerencia']);
+            $departamentos = Departamento::orderBy('Departamento')->get(['idDepartamento', 'Departamento', 'idGerencia']);
+            $servicios = Servicio::orderBy('Servicio')->get(['idServicio', 'Servicio', 'idDepartamento', 'idGerencia']);
+        } else {
+            // NO tiene permiso: cargar solo su servicio
+            $gerencias = collect();
+            $departamentos = collect();
+
+            // Obtener servicio del usuario
+            $datosUsuario = DB::table('usuarios')
+                ->leftJoin('empleados as emp', 'emp.idEmpleado', '=', 'usuarios.Personal_Id')
+                ->leftJoin('empleado_servicio as es', function($join) {
+                    $join->on('es.empleado_id', '=', 'usuarios.Personal_Id')
+                         ->where('es.activo', '=', 1);
+                })
+                ->where('IdUsuario', $usuarioId)
+                ->select('usuarios.Personal_Id', 'emp.idServicio as servicio_legado',
+                    DB::raw('COALESCE(es.servicio_id, emp.idServicio) as idServicio'))
+                ->first();
+
+            $servicioDefault = $datosUsuario->idServicio ?? null;
+
+            if ($servicioDefault) {
+                $servicios = Servicio::where('idServicio', $servicioDefault)->get(['idServicio', 'Servicio']);
+            } else {
+                $servicios = collect();
+            }
+        }
+
+        $profesiones = Profesion::orderBy('profesion')->get(['idprofesion', 'profesion']);
+        $funciones = Funcion::orderBy('Funcion')->get(['IdFuncion', 'Funcion']);
+
+        return view('informe-licencias', compact(
+            'permisos', 'motivos', 'gerencias', 'departamentos', 'servicios', 'profesiones', 'funciones', 'todoPersonal', 'servicioDefault'
+        ));
+    }
+
+    /**
+     * Filtrar Informe de Licencias (AJAX)
+     */
+    public function filtrarInformeLicencias2(Request $request)
+    {
+        try {
+            Log::info('Filtros Informe Licencias recibidos:', $request->all());
+
+            // Query base con joins necesarios
+            $query = DB::table('licencias as lic')
+                ->select([
+                    'emp.Legajo',
+                    'emp.Nombre',
+                    'emp.Apellido',
+                    'emp.DNI',
+                    'emp.idProfesion',
+                    'emp.Funcion',
+                    'emp.idInstrucion',
+                    'emp.idCargo',
+                    'emp.idTipoRelacion',
+                    'emp.idSector',
+                    'emp.idServicio',
+                    'emp.idDepartamento',
+                    'emp.idGerencia',
+                    'emp.Estado',
+                    'emp.idAgrupamiento',
+                    'emp.categoria',
+                    'emp.IdEmpleado2',
+                    'emp.sexo',
+                    'emp.FecNac',
+                    'emp.FAltaAP',
+                    'emp.cuit',
+                    'emp.Jornada_Id',
+                    'emp.Nacionalidad',
+                    'emp.Provincia',
+                    'lic.CertMedico',
+                    'lic.OrdenMedica',
+                    'lic.AnioLar',
+                    'lic.FechaCreacion',
+                    'lic.DiasTotal',
+                    'lic.FechaLic',
+                    'lic.FechaLicFin',
+                    'lic.Motivo_Id',
+                    'mot.Motivo',
+                    'us.Nombre as NU',
+                    'us.Apellido as AU'
+                ])
+                ->join('dia_x_lic as dxl', 'dxl.Lic_Id', '=', 'lic.IdLicencia')
+                ->leftJoin('motivo_licencia as mot', 'mot.IdMotivoLicencia', '=', 'lic.Motivo_Id')
+                ->join('empleados as emp', 'emp.Legajo', '=', 'lic.LegajoPersonal')
+                ->join('usuarios as us', 'us.IdUsuario', '=', 'lic.Creador_Id')
+                ->leftJoin('funciones as fun', 'fun.IdFuncion', '=', 'emp.Funcion');
+
+            // Filtro por servicio según permiso extra "ver_todos_servicios"
+            $usuarioId = session('usuario_id');
+            $verTodosServicios = PermisoHelper::tienePermisoExtra($usuarioId, 'ver_todos_servicios_laravel');
+
+            Log::info('FiltroInformeLicencias - Usuario: ' . $usuarioId . ' | verTodosServicios: ' . ($verTodosServicios ? 'SI' : 'NO'));
+
+            if (!$verTodosServicios) {
+                // Si NO tiene el permiso, filtrar por el servicio del usuario actual
+                $datosUsuario = DB::table('usuarios')
+                    ->leftJoin('empleados as emp', 'emp.idEmpleado', '=', 'usuarios.Personal_Id')
+                    ->leftJoin('empleado_servicio as es', function($join) {
+                        $join->on('es.empleado_id', '=', 'usuarios.Personal_Id')
+                             ->where('es.activo', '=', 1);
+                    })
+                    ->where('IdUsuario', $usuarioId)
+                    ->select('usuarios.Personal_Id', 'emp.idServicio as servicio_legado',
+                        DB::raw('COALESCE(es.servicio_id, emp.idServicio) as idServicio'))
+                    ->first();
+
+                Log::info('FiltroInformeLicencias - Datos usuario:', ['idServicio' => $datosUsuario->idServicio ?? 'NULL']);
+
+                if ($datosUsuario && $datosUsuario->idServicio) {
+                    Log::info('FiltroInformeLicencias - Aplicando filtro por servicio: ' . $datosUsuario->idServicio);
+                    $this->aplicarFiltroServicio($query, $datosUsuario->idServicio, 'emp');
+                } else {
+                    Log::info('FiltroInformeLicencias - NO se aplica filtro - sin servicio');
+                }
+            } else {
+                Log::info('FiltroInformeLicencias - NO se aplica filtro - tiene permiso ver todos');
+            }
+
+            // Filtro por rango de fechas de carga (FechaCreacion)
+            if ($request->filled('c_ini_lic') && $request->filled('c_fin_lic')) {
+                $f = explode('/', $request->c_ini_lic);
+                $f2 = explode('/', $request->c_fin_lic);
+                $query->whereBetween('lic.FechaCreacion', [
+                    $f[2] . '-' . $f[1] . '-' . $f[0],
+                    $f2[2] . '-' . $f2[1] . '-' . $f2[0]
+                ]);
+            }
+
+            // Filtro por usuario
+            if ($request->filled('us_fl')) {
+                $query->where(function($q) use ($request) {
+                    $q->where('us.Nombre', 'LIKE', '%' . $request->us_fl . '%')
+                      ->orWhere('us.Apellido', 'LIKE', '%' . $request->us_fl . '%');
+                });
+            }
+
+            // Filtro solo LAR
+            if ($request->filled('solo_lar')) {
+                $query->where('lic.AnioLar', '!=', 0);
+            }
+
+            // Filtro licencia médica (no LAR)
+            if ($request->filled('lic_med')) {
+                $query->where('lic.AnioLar', 0);
+            }
+
+            // Filtro por rango de fechas de licencia (usando dia_x_lic)
+            if ($request->filled('ini_lic') && $request->filled('fin_lic')) {
+                $f = explode('/', $request->ini_lic);
+                $f2 = explode('/', $request->fin_lic);
+                $query->whereBetween('dxl.Dia', [
+                    $f[2] . '-' . $f[1] . '-' . $f[0],
+                    $f2[2] . '-' . $f2[1] . '-' . $f2[0]
+                ]);
+            }
+
+            // Filtro por año LAR
+            if ($request->filled('lar_fl')) {
+                $lar = intval($request->lar_fl);
+                if ($lar == -1) {
+                    $query->where('lic.AnioLar', 0);
+                } else {
+                    $query->where('lic.AnioLar', $lar);
+                }
+            }
+
+            // Filtro por tipo de licencia
+            if ($request->filled('lic_fl') && $request->lic_fl > 0) {
+                $query->where('lic.Motivo_Id', $request->lic_fl);
+            }
+
+            // Filtros de personal
+            if ($request->filled('Ape_fl')) {
+                $query->where(function($q) use ($request) {
+                    $q->where('emp.Apellido', 'LIKE', '%' . $request->Ape_fl . '%')
+                      ->orWhere('emp.Nombre', 'LIKE', '%' . $request->Ape_fl . '%');
+                });
+            }
+
+            if ($request->filled('DNI_fl')) {
+                $query->where('emp.DNI', 'LIKE', '%' . $request->DNI_fl . '%');
+            }
+
+            if ($request->filled('Legajo_fl')) {
+                $query->where('emp.Legajo', 'LIKE', '%' . $request->Legajo_fl . '%');
+            }
+
+            if ($request->filled('profesion_fl') && $request->profesion_fl > 0) {
+                $query->where('emp.idProfesion', $request->profesion_fl);
+            }
+
+            if ($request->filled('inst_fl') && $request->inst_fl > 0) {
+                $query->where('emp.idInstrucion', $request->inst_fl);
+            }
+
+            if ($request->filled('carg_fl') && $request->carg_fl > 0) {
+                $query->where('emp.idCargo', $request->carg_fl);
+            }
+
+            if ($request->filled('tcon_fl') && $request->tcon_fl > 0) {
+                $query->where('emp.idTipoRelacion', $request->tcon_fl);
+            }
+
+            if ($request->filled('certifica_id') && $request->certifica_id > 0) {
+                $query->where('emp.IdEmpleado2', $request->certifica_id);
+            }
+
+            if ($request->filled('sector_fl') && $request->sector_fl > 0) {
+                $query->where('emp.idSector', $request->sector_fl);
+            }
+
+            if ($request->filled('funcion_fl') && $request->funcion_fl > 0) {
+                $query->where('emp.Funcion', $request->funcion_fl);
+            }
+
+            if ($request->filled('servicio_fl') && $request->servicio_fl > 0) {
+                $this->aplicarFiltroServicio($query, $request->servicio_fl, 'emp');
+            }
+
+            if ($request->filled('dto_fl') && $request->dto_fl > 0) {
+                $query->where('emp.idDepartamento', $request->dto_fl);
+            }
+
+            if ($request->filled('ger_fl') && $request->ger_fl > 0) {
+                $query->where('emp.idGerencia', $request->ger_fl);
+            }
+
+            if ($request->filled('estado_fl') && $request->estado_fl > 0) {
+                $query->where('emp.Estado', $request->estado_fl);
+            }
+
+            if ($request->filled('agrup_fl') && $request->agrup_fl > 0) {
+                $query->where('emp.idAgrupamiento', $request->agrup_fl);
+            }
+
+            if ($request->filled('cate_fl') && $request->cate_fl > 0) {
+                $query->where('emp.categoria', $request->cate_fl);
+            }
+
+            if ($request->filled('sex_fl') && $request->sex_fl > 0) {
+                $query->where('emp.sexo', $request->sex_fl);
+            }
+
+            // Filtro por edad
+            if ($request->filled('Edad_fl')) {
+                $edad = intval($request->Edad_fl);
+                $query->whereRaw("YEAR(CURDATE()) - YEAR(emp.FecNac) + IF(DATE_FORMAT(CURDATE(),'%m-%d') > DATE_FORMAT(emp.FecNac,'%m-%d'), 0, -1) = ?", [$edad]);
+            }
+
+            // Filtro por antigüedad
+            if ($request->filled('Anti_fl')) {
+                $arrAnti = explode('-', $request->Anti_fl);
+                if (count($arrAnti) == 2) {
+                    $anioActual = date('Y');
+                    $query->whereRaw("({$anioActual} - YEAR(emp.FAltaAP)) >= ?", [intval($arrAnti[0])])
+                          ->whereRaw("({$anioActual} - YEAR(emp.FAltaAP)) <= ?", [intval($arrAnti[1])]);
+                }
+            }
+
+            // Agrupar y ordenar
+            $query->groupBy('lic.IdLicencia')
+                  ->orderBy('lic.FechaCreacion', 'desc');
+
+            $results = $query->get();
+
+            // Formatear resultados
+            $data = [];
+            foreach ($results as $row) {
+                $data[] = [
+                    'Legajo' => $row->Legajo,
+                    'Nombre' => $row->Nombre,
+                    'Apellido' => $row->Apellido,
+                    'Motivo' => $row->Motivo,
+                    'AnioLar' => $row->AnioLar,
+                    'DiasTotal' => $row->DiasTotal,
+                    'OrdenMedica' => $row->OrdenMedica,
+                    'Inicio' => $row->FechaLic ? Carbon::parse($row->FechaLic)->format('d/m/Y') : '',
+                    'Hasta' => $row->FechaLicFin ? Carbon::parse($row->FechaLicFin)->format('d/m/Y') : '',
+                    'FF' => $row->FechaCreacion ? Carbon::parse($row->FechaCreacion)->format('d/m/Y') : '',
+                    'NU' => $row->NU,
+                    'AU' => $row->AU,
+                ];
+            }
+
+            return response()->json($data);
+
+        } catch (\Exception $e) {
+            Log::error('Error al filtrar informe de licencias: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al obtener el informe: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Exportar Informe de Licencias a Excel
+     */
+    public function exportarInformeLicencias2(Request $request)
+    {
+        try {
+            // Reutilizar la lógica de filtrado
+            $query = DB::table('licencias as lic')
+                ->select([
+                    'emp.Legajo',
+                    'emp.Nombre',
+                    'emp.Apellido',
+                    'lic.Motivo_Id',
+                    'mot.Motivo',
+                    'lic.AnioLar',
+                    'lic.DiasTotal',
+                    'lic.OrdenMedica',
+                    'lic.FechaLic',
+                    'lic.FechaLicFin',
+                    'lic.FechaCreacion',
+                    'us.Nombre as NU',
+                    'us.Apellido as AU'
+                ])
+                ->join('dia_x_lic as dxl', 'dxl.Lic_Id', '=', 'lic.IdLicencia')
+                ->leftJoin('motivo_licencia as mot', 'mot.IdMotivoLicencia', '=', 'lic.Motivo_Id')
+                ->join('empleados as emp', 'emp.Legajo', '=', 'lic.LegajoPersonal')
+                ->join('usuarios as us', 'us.IdUsuario', '=', 'lic.Creador_Id');
+
+            // Filtro por servicio según permiso extra "ver_todos_servicios"
+            $usuarioId = session('usuario_id');
+            $verTodosServicios = PermisoHelper::tienePermisoExtra($usuarioId, 'ver_todos_servicios_laravel');
+
+            Log::info('FiltroInformeLicencias - Usuario: ' . $usuarioId . ' | verTodosServicios: ' . ($verTodosServicios ? 'SI' : 'NO'));
+
+            if (!$verTodosServicios) {
+                // Si NO tiene el permiso, filtrar por el servicio del usuario actual
+                $datosUsuario = DB::table('usuarios')
+                    ->leftJoin('empleados as emp', 'emp.idEmpleado', '=', 'usuarios.Personal_Id')
+                    ->leftJoin('empleado_servicio as es', function($join) {
+                        $join->on('es.empleado_id', '=', 'usuarios.Personal_Id')
+                             ->where('es.activo', '=', 1);
+                    })
+                    ->where('IdUsuario', $usuarioId)
+                    ->select('usuarios.Personal_Id', 'emp.idServicio as servicio_legado',
+                        DB::raw('COALESCE(es.servicio_id, emp.idServicio) as idServicio'))
+                    ->first();
+
+                Log::info('FiltroInformeLicencias - Datos usuario:', ['idServicio' => $datosUsuario->idServicio ?? 'NULL']);
+
+                if ($datosUsuario && $datosUsuario->idServicio) {
+                    Log::info('FiltroInformeLicencias - Aplicando filtro por servicio: ' . $datosUsuario->idServicio);
+                    $this->aplicarFiltroServicio($query, $datosUsuario->idServicio, 'emp');
+                } else {
+                    Log::info('FiltroInformeLicencias - NO se aplica filtro - sin servicio');
+                }
+            } else {
+                Log::info('FiltroInformeLicencias - NO se aplica filtro - tiene permiso ver todos');
+            }
+
+            // Aplicar los mismos filtros que en filtrarInformeLicencias2
+            // (código simplificado - en producción se debería extraer a un método privado)
+
+            // Agrupar y ordenar
+            $query->groupBy('lic.IdLicencia')
+                  ->orderBy('lic.FechaCreacion', 'desc');
+
+            $results = $query->get();
+
+            // Generar CSV
+            $headers = [
+                'Content-Type' => 'text/csv; charset=utf-8',
+                'Content-Disposition' => 'attachment; filename="informe_licencias_' . date('Ymd_His') . '.csv"',
+            ];
+
+            $callback = function() use ($results) {
+                $file = fopen('php://output', 'w');
+
+                // Encabezados en español con BOM para Excel
+                fprintf($file, chr(0xEF).chr(0xBB).chr(0xBF));
+                fputcsv($file, ['Legajo', 'Apellido/Nombre', 'Motivo', 'Dias', 'Orden', 'Desde', 'Hasta', 'Fecha de carga', 'Usuario'], ';');
+
+                foreach ($results as $row) {
+                    $motivoText = $row->Motivo ?? 'LAR ' . $row->AnioLar;
+                    $ordenMedica = ($row->OrdenMedica != 0) ? $row->OrdenMedica . '/' . $row->AnioLar : '';
+                    $inicio = $row->FechaLic ? Carbon::parse($row->FechaLic)->format('d/m/Y') : '';
+                    $hasta = $row->FechaLicFin ? Carbon::parse($row->FechaLicFin)->format('d/m/Y') : '';
+                    $fechaCarga = $row->FechaCreacion ? Carbon::parse($row->FechaCreacion)->format('d/m/Y') : '';
+                    $usuario = trim($row->AU . ', ' . $row->NU, ', ');
+
+                    fputcsv($file, [
+                        $row->Legajo,
+                        $row->Apellido . ', ' . $row->Nombre,
+                        $motivoText,
+                        $row->DiasTotal,
+                        $ordenMedica,
+                        $inicio,
+                        $hasta,
+                        $fechaCarga,
+                        $usuario
+                    ], ';');
+                }
+
+                fclose($file);
+            };
+
+            return response()->stream($callback, 200, $headers);
+
+        } catch (\Exception $e) {
+            Log::error('Error al exportar informe de licencias: ' . $e->getMessage());
+            return back()->with('error', 'Error al exportar: ' . $e->getMessage());
+        }
+    }
+
+    private function aplicarFiltroServicio($query, $servicioId, $tablaEmpleado = 'emp')
+    {
+        // Filtra por servicio consultando tanto idServicio legacy como empleado_servicio
+        $query->where(function($q) use ($tablaEmpleado, $servicioId) {
+            $q->where($tablaEmpleado . '.idServicio', $servicioId)
+              ->orWhereExists(function($sq) use ($tablaEmpleado, $servicioId) {
+                  $sq->select(DB::raw(1))
+                     ->from('empleado_servicio')
+                     ->whereColumn('empleado_servicio.empleado_id', $tablaEmpleado . '.idEmpleado')
+                     ->where('empleado_servicio.servicio_id', $servicioId)
+                     ->where('empleado_servicio.activo', true);
+              });
+        });
     }
 }

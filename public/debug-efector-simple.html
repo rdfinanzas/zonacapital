@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Debug Efector Simple</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        table { border-collapse: collapse; width: 100%; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+        .error { color: red; }
+        .success { color: green; }
+    </style>
+</head>
+<body>
+    <h1>Debug Efectores en Registros Dengue</h1>
+    <div id="result">Cargando...</div>
+
+    <script>
+        fetch('/debug-efector')
+            .then(response => response.json())
+            .then(data => {
+                const resultDiv = document.getElementById('result');
+
+                if (data.error) {
+                    resultDiv.innerHTML = '<div class="error">Error: ' + data.error + '</div>';
+                    return;
+                }
+
+                resultDiv.innerHTML = `
+                    <div class="success">Datos del Registro ${data.registro_id}:</div>
+                    <table>
+                        <tr><th>Campo</th><th>Valor</th></tr>
+                        <tr><td>Efector ID</td><td>${data.efector_id || 'NULL'}</td></tr>
+                        <tr><td>Efector Servicio</td><td>${data.efector_servicio || 'NULL'}</td></tr>
+                        <tr><td>Paciente</td><td>${data.paciente || 'NULL'}</td></tr>
+                        <tr><td>Usuario</td><td>${data.usuario || 'NULL'}</td></tr>
+                    </table>
+                    <h3>Objeto Efector Completo:</h3>
+                    <pre>${JSON.stringify(data.efector_objeto, null, 2)}</pre>
+                    <h3>Datos Raw del Registro:</h3>
+                    <pre>${JSON.stringify(data.raw_data, null, 2)}</pre>
+                `;
+            })
+            .catch(error => {
+                document.getElementById('result').innerHTML = '<div class="error">Error: ' + error.message + '</div>';
+            });
+    </script>
+</body>
+</html>
